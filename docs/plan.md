@@ -48,7 +48,7 @@ CloudFront Signed URLの発行の仕組みを理解する目的で、Terraform�
 
 ### variables.tf
 - `aws_region`（default `"ap-northeast-1"`）
-- `project_name`（default `"cloudfront-signed-key"`、各リソースの命名プレフィックスに使用）
+- `project_name`（default `"cloudfront-signed"`、各リソースの命名プレフィックスに使用）
 - `bucket_name`（未指定時は`data.aws_caller_identity.current.account_id`を使ってグローバル一意な名前を生成）
 - `public_key_path`（default `"../keys/public_key.pem"`。**公開鍵のみ**を`file()`で読む。`keys/`は`terraform/`の外、リポジトリルート直下）
 - `secret_name`（Secrets Managerのシークレット名）

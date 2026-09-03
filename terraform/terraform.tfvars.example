@@ -2,17 +2,17 @@
 # No secret values belong here - only non-sensitive configuration.
 
 aws_region   = "ap-northeast-1"
-project_name = "cloudfront-signed-key"
+project_name = "cloudfront-signed"
 
 # Leave unset to auto-generate a globally unique name from the account ID.
 # bucket_name = null
 
 public_key_path = "../keys/public_key.pem"
-secret_name     = "cloudfront-signed-key/private-key"
+secret_name     = "cloudfront-signed/private-key"
 
 cloudfront_price_class = "PriceClass_100"
 
 tags = {
-  Project   = "cloudfront-signed-key"
+  Project   = "cloudfront-signed"
   ManagedBy = "terraform"
 }

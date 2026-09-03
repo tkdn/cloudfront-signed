@@ -7,7 +7,7 @@ variable "aws_region" {
 variable "project_name" {
   description = "Prefix used for resource naming"
   type        = string
-  default     = "cloudfront-signed-key"
+  default     = "cloudfront-signed"
 }
 
 variable "bucket_name" {
@@ -25,7 +25,7 @@ variable "public_key_path" {
 variable "secret_name" {
   description = "Name of the Secrets Manager secret that will hold the private key (value is populated outside Terraform)"
   type        = string
-  default     = "cloudfront-signed-key/private-key"
+  default     = "cloudfront-signed/private-key"
 }
 
 variable "cloudfront_price_class" {
@@ -38,7 +38,7 @@ variable "tags" {
   description = "Common tags applied to all resources"
   type        = map(string)
   default = {
-    Project   = "cloudfront-signed-key"
+    Project   = "cloudfront-signed"
     ManagedBy = "terraform"
   }
 }
