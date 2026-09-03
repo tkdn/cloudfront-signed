@@ -114,6 +114,30 @@ keys/private_key.pem
    ```
 4. `terraform output -raw cloudfront_public_key_id`と`cloudfront_domain_name`を控え、後日作成するGo署名スクリプトで使用する。
 
+## apply後の実行項目
+
+`terraform apply`完了後に必ず実施する作業。上記「Terraform外の手順」のステップ3・4と重複するが、applyが完了しリソースが実在する状態でなければ実行できないため、区切りを明確にした独立チェックリストとして再掲する。
+
+1. **Secrets Managerへ秘密鍵を投入する**（`aws_secretsmanager_secret_version`をTerraformで作らない設計のため、applyだけではシークレットは空のコンテナのまま）。
+   ```
+   aws secretsmanager put-secret-value \
+     --secret-id "$(terraform output -raw secrets_manager_secret_name)" \
+     --secret-string file://../keys/private_key.pem
+   ```
+2. **Go署名スクリプトが必要とする出力値を控える。**
+   - `terraform output -raw cloudfront_public_key_id`（署名付きURLの`Key-Pair-Id`に使う）
+   - `terraform output -raw cloudfront_domain_name`（署名対象URLのホスト名）
+3. **インフラ正当性を確認する**（検証項目1〜3、詳細は次節）。
+   ```
+   # S3への直接アクセスが403になること（<region>はterraform.tfvarsのaws_regionに合わせる）
+   curl -I "https://$(terraform output -raw s3_bucket_name).s3.<region>.amazonaws.com/dummy"
+
+   # CloudFront経由でも署名なしアクセスは403になること
+   curl -I "https://$(terraform output -raw cloudfront_domain_name)/dummy"
+   ```
+   `origin_access_control_id`が設定され旧OAI（`aws_cloudfront_origin_access_identity`）が使われていないことは、コード上`cloudfront.tf`が`origin_access_control_id`のみを参照している時点で保証されるが、AWSコンソールまたは`aws cloudfront get-distribution-config`でも目視確認する。
+4. 手順1〜3が完了した時点で、この計画（Terraformによるインフラ構築）はスコープ完了となる。以降のE2E検証・Go実装特有の確認（検証項目4〜11）はGo署名スクリプトの実装後に着手する。
+
 ## 検証項目
 
 このTerraform計画の完了時点で実際に検証できるのは、AWS CLIとcurlのみで確認可能な「インフラ正当性」の3項目のみ。Custom Policyでの正しい署名付きURL発行にはGo実装（このプランのスコープ外、将来作成）が必要なため、E2E項目とGo実装特有の確認項目は、あくまで「Go実装が完成した後に何を確認すべきか」の見通しとして記載するに留め、今回のTerraform作業では実施しない。
