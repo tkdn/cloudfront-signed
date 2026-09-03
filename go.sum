@@ -1,0 +1,6 @@
+github.com/aws/aws-sdk-go-v2 v1.45.1 h1:iIoG3NaLhV6UZpPXyPXlDj2I9oS8tV/nMcMnITCC6Ks=
+github.com/aws/aws-sdk-go-v2 v1.45.1/go.mod h1:bttEH6JqnUL8LepvDVfdrds/fZ5bCIxzpe3abyUrhDU=
+github.com/aws/aws-sdk-go-v2/feature/cloudfront/sign v1.12.1 h1:7VUW9A/qKx/qBAgA+gK3m7JZ5+OLhCn5XsU9mtH8FEk=
+github.com/aws/aws-sdk-go-v2/feature/cloudfront/sign v1.12.1/go.mod h1:uYugpLbp82uF7fOb8ZtIzVCMPI3Ua9qQFLMQoqk9ejc=
+github.com/aws/smithy-go v1.28.1 h1:R/nXH00c8qcfCzQVELtRw+eLQWtzv+VAIEFJ1/xxXlQ=
+github.com/aws/smithy-go v1.28.1/go.mod h1:YE2RhdIuDbA5E5bTdciG9KrW3+TiEONeUWCqxX9i1Fc=
