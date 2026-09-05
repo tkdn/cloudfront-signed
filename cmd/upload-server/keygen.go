@@ -31,6 +31,7 @@ func newObjectKey(userID, contentType string) (string, error) {
 		ext = exts[0]
 	}
 
+	// 16 bytes of entropy for key uniqueness, not a UUID format requirement.
 	buf := make([]byte, 16)
 	if _, err := rand.Read(buf); err != nil {
 		return "", fmt.Errorf("generate random id: %w", err)

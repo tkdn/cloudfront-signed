@@ -1,4 +1,3 @@
-// cmd/upload-server/cloudfront_adapter.go
 package main
 
 import (
