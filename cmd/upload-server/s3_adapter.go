@@ -14,6 +14,8 @@ type realS3Presigner struct {
 	expires time.Duration
 }
 
+var _ s3Presigner = (*realS3Presigner)(nil)
+
 func newRealS3Presigner(client *s3.Client, expires time.Duration) *realS3Presigner {
 	return &realS3Presigner{client: s3.NewPresignClient(client), expires: expires}
 }

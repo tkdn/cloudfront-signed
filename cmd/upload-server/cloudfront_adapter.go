@@ -13,6 +13,8 @@ type realCloudFrontSigner struct {
 	expires   time.Duration
 }
 
+var _ cloudFrontSigner = (*realCloudFrontSigner)(nil)
+
 func newRealCloudFrontSigner(domain string, signer *sign.URLSigner, expires time.Duration) *realCloudFrontSigner {
 	return &realCloudFrontSigner{domain: domain, urlSigner: signer, expires: expires}
 }

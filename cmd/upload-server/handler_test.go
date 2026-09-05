@@ -15,6 +15,8 @@ type fakeS3Presigner struct {
 	err error
 }
 
+var _ s3Presigner = (*fakeS3Presigner)(nil)
+
 func (f *fakeS3Presigner) PresignPutObject(ctx context.Context, bucket, key, contentType string) (string, error) {
 	if f.err != nil {
 		return "", f.err
@@ -26,6 +28,8 @@ type fakeCloudFrontSigner struct {
 	url string
 	err error
 }
+
+var _ cloudFrontSigner = (*fakeCloudFrontSigner)(nil)
 
 func (f *fakeCloudFrontSigner) SignDownloadURL(key string) (string, error) {
 	if f.err != nil {
