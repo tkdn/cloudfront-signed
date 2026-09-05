@@ -15,6 +15,17 @@ var (
 	errInvalidContentType = errors.New("contentType must start with image/")
 )
 
+// knownImageExtensions pins the extension for common image types instead of
+// relying on mime.ExtensionsByType, whose result depends on the host's
+// /etc/mime.types and similar system mime databases (e.g. it can pick
+// ".jfif" for "image/jpeg" on some systems).
+var knownImageExtensions = map[string]string{
+	"image/jpeg": ".jpg",
+	"image/png":  ".png",
+	"image/gif":  ".gif",
+	"image/webp": ".webp",
+}
+
 func newObjectKey(userID, contentType string) (string, error) {
 	if userID == "" {
 		return "", errEmptyUserID
@@ -26,9 +37,11 @@ func newObjectKey(userID, contentType string) (string, error) {
 		return "", errInvalidContentType
 	}
 
-	ext := ""
-	if exts, err := mime.ExtensionsByType(contentType); err == nil && len(exts) > 0 {
-		ext = exts[0]
+	ext, ok := knownImageExtensions[contentType]
+	if !ok {
+		if exts, err := mime.ExtensionsByType(contentType); err == nil && len(exts) > 0 {
+			ext = exts[0]
+		}
 	}
 
 	// 16 bytes of entropy for key uniqueness, not a UUID format requirement.

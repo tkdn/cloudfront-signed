@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -123,6 +124,38 @@ func TestPresignUpload_EmptyUserID(t *testing.T) {
 	}
 }
 
+func TestPresignUpload_UserIDContainsSlash(t *testing.T) {
+	srv := newTestServer()
+	body := strings.NewReader(`{"userId":"alice/../bob","contentType":"image/png"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/presign-upload", body)
+	req.Header.Set("X-Upload-Secret", "test-secret")
+	rec := httptest.NewRecorder()
+
+	srv.ServeMux().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestPresignUpload_PresignerError(t *testing.T) {
+	srv := newUploadServer(uploadServerConfig{
+		UploadSecret:     "test-secret",
+		S3Presigner:      &fakeS3Presigner{err: errors.New("boom")},
+		CloudFrontSigner: &fakeCloudFrontSigner{url: "https://cdn.example.com/signed-get"},
+	})
+	body := strings.NewReader(`{"userId":"alice","contentType":"image/png"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/presign-upload", body)
+	req.Header.Set("X-Upload-Secret", "test-secret")
+	rec := httptest.NewRecorder()
+
+	srv.ServeMux().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+}
+
 func TestPresignDownload_Success(t *testing.T) {
 	srv := newTestServer()
 	body := strings.NewReader(`{"key":"users/alice/abc123.png"}`)
@@ -171,5 +204,23 @@ func TestPresignDownload_EmptyKey(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestPresignDownload_SignerError(t *testing.T) {
+	srv := newUploadServer(uploadServerConfig{
+		UploadSecret:     "test-secret",
+		S3Presigner:      &fakeS3Presigner{url: "https://bucket.s3.example.com/signed-put"},
+		CloudFrontSigner: &fakeCloudFrontSigner{err: errors.New("boom")},
+	})
+	body := strings.NewReader(`{"key":"users/alice/abc123.png"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/presign-download", body)
+	req.Header.Set("X-Upload-Secret", "test-secret")
+	rec := httptest.NewRecorder()
+
+	srv.ServeMux().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
 	}
 }

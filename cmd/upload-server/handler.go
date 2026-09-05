@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
+	"log"
 	"net/http"
 )
 
@@ -38,7 +40,8 @@ func (s *uploadServer) ServeMux() *http.ServeMux {
 }
 
 func (s *uploadServer) checkSecret(w http.ResponseWriter, r *http.Request) bool {
-	if r.Header.Get("X-Upload-Secret") != s.cfg.UploadSecret {
+	got := r.Header.Get("X-Upload-Secret")
+	if subtle.ConstantTimeCompare([]byte(got), []byte(s.cfg.UploadSecret)) != 1 {
 		http.Error(w, "invalid or missing X-Upload-Secret header", http.StatusUnauthorized)
 		return false
 	}
@@ -79,7 +82,9 @@ func (s *uploadServer) handlePresignUpload(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(presignUploadResponse{Key: key, UploadURL: uploadURL})
+	if err := json.NewEncoder(w).Encode(presignUploadResponse{Key: key, UploadURL: uploadURL}); err != nil {
+		log.Printf("encode presign-upload response: %v", err)
+	}
 }
 
 type presignDownloadRequest struct {
@@ -112,5 +117,7 @@ func (s *uploadServer) handlePresignDownload(w http.ResponseWriter, r *http.Requ
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(presignDownloadResponse{DownloadURL: downloadURL})
+	if err := json.NewEncoder(w).Encode(presignDownloadResponse{DownloadURL: downloadURL}); err != nil {
+		log.Printf("encode presign-download response: %v", err)
+	}
 }

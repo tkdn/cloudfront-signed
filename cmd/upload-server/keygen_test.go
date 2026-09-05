@@ -40,6 +40,24 @@ func TestNewObjectKey_Success(t *testing.T) {
 	}
 }
 
+func TestNewObjectKey_ExtensionByContentType(t *testing.T) {
+	cases := map[string]string{
+		"image/jpeg": ".jpg",
+		"image/png":  ".png",
+		"image/gif":  ".gif",
+		"image/webp": ".webp",
+	}
+	for contentType, wantExt := range cases {
+		key, err := newObjectKey("alice", contentType)
+		if err != nil {
+			t.Fatalf("contentType=%s: unexpected error: %v", contentType, err)
+		}
+		if !strings.HasSuffix(key, wantExt) {
+			t.Fatalf("contentType=%s: key = %q, want suffix %q", contentType, key, wantExt)
+		}
+	}
+}
+
 func TestNewObjectKey_Unique(t *testing.T) {
 	key1, err := newObjectKey("alice", "image/png")
 	if err != nil {
