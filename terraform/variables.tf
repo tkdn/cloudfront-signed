@@ -34,6 +34,12 @@ variable "cloudfront_price_class" {
   default     = "PriceClass_100"
 }
 
+variable "upload_cors_allowed_origins" {
+  description = "Origins allowed to PUT directly to the S3 bucket via presigned URLs (browser upload verification)"
+  type        = list(string)
+  default     = ["http://localhost:8080"]
+}
+
 variable "tags" {
   description = "Common tags applied to all resources"
   type        = map(string)

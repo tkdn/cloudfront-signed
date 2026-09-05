@@ -47,7 +47,7 @@ resource "aws_s3_bucket_cors_configuration" "origin" {
   bucket = aws_s3_bucket.origin.id
 
   cors_rule {
-    allowed_origins = ["http://localhost:8080"]
+    allowed_origins = var.upload_cors_allowed_origins
     allowed_methods = ["PUT"]
     allowed_headers = ["Content-Type"]
     max_age_seconds = 3000

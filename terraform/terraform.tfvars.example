@@ -12,6 +12,9 @@ secret_name     = "cloudfront-signed/private-key"
 
 cloudfront_price_class = "PriceClass_100"
 
+# Origins allowed to PUT directly to S3 via presigned URLs (cmd/upload-server verification UI).
+upload_cors_allowed_origins = ["http://localhost:8080"]
+
 tags = {
   Project   = "cloudfront-signed"
   ManagedBy = "terraform"
