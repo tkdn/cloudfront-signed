@@ -138,6 +138,19 @@ func TestPresignUpload_UserIDContainsSlash(t *testing.T) {
 	}
 }
 
+func TestPresignUpload_MethodNotAllowed(t *testing.T) {
+	srv := newTestServer()
+	req := httptest.NewRequest(http.MethodGet, "/api/presign-upload", nil)
+	req.Header.Set("X-Upload-Secret", "test-secret")
+	rec := httptest.NewRecorder()
+
+	srv.ServeMux().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", rec.Code)
+	}
+}
+
 func TestPresignUpload_PresignerError(t *testing.T) {
 	srv := newUploadServer(uploadServerConfig{
 		UploadSecret:     "test-secret",
@@ -204,6 +217,19 @@ func TestPresignDownload_EmptyKey(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestPresignDownload_MethodNotAllowed(t *testing.T) {
+	srv := newTestServer()
+	req := httptest.NewRequest(http.MethodGet, "/api/presign-download", nil)
+	req.Header.Set("X-Upload-Secret", "test-secret")
+	rec := httptest.NewRecorder()
+
+	srv.ServeMux().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", rec.Code)
 	}
 }
 

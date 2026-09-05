@@ -30,8 +30,8 @@ type uploadServer struct {
 
 func newUploadServer(cfg uploadServerConfig) *uploadServer {
 	s := &uploadServer{cfg: cfg, mux: http.NewServeMux()}
-	s.mux.HandleFunc("/api/presign-upload", s.handlePresignUpload)
-	s.mux.HandleFunc("/api/presign-download", s.handlePresignDownload)
+	s.mux.HandleFunc("POST /api/presign-upload", s.handlePresignUpload)
+	s.mux.HandleFunc("POST /api/presign-download", s.handlePresignDownload)
 	return s
 }
 
