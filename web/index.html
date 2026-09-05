@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Upload &amp; Signed URL Demo</title>
+</head>
+<body>
+<h1>S3 Upload -&gt; CloudFront Signed URL Demo</h1>
+
+<label>User ID: <input id="userId" value="alice"></label><br>
+<label>Upload Secret: <input id="secret" value="DONT_USE_THIS_CODE"></label><br>
+<input type="file" id="file" accept="image/*"><br>
+<button id="uploadBtn">Upload</button>
+
+<pre id="log"></pre>
+<a id="result" href="#" target="_blank" style="display:none">Open signed URL</a>
+
+<script>
+function log(msg) {
+  document.getElementById('log').textContent += msg + "\n";
+}
+
+document.getElementById('uploadBtn').addEventListener('click', async () => {
+  const userId = document.getElementById('userId').value;
+  const secret = document.getElementById('secret').value;
+  const fileInput = document.getElementById('file');
+  const file = fileInput.files[0];
+  if (!file) {
+    log('ファイルを選択してください');
+    return;
+  }
+
+  log('presign-upload を要求中...');
+  const presignRes = await fetch('/api/presign-upload', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Upload-Secret': secret,
+    },
+    body: JSON.stringify({ userId: userId, contentType: file.type }),
+  });
+  if (!presignRes.ok) {
+    log('presign-upload 失敗: ' + presignRes.status);
+    return;
+  }
+  const { key, uploadUrl } = await presignRes.json();
+  log('key = ' + key);
+
+  log('S3へPUT中...');
+  const putRes = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type },
+    body: file,
+  });
+  if (!putRes.ok) {
+    log('S3 PUT 失敗: ' + putRes.status);
+    return;
+  }
+  log('S3 PUT 成功 (status=' + putRes.status + ')');
+
+  log('presign-download を要求中...');
+  const downloadRes = await fetch('/api/presign-download', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Upload-Secret': secret,
+    },
+    body: JSON.stringify({ key: key }),
+  });
+  if (!downloadRes.ok) {
+    log('presign-download 失敗: ' + downloadRes.status);
+    return;
+  }
+  const { downloadUrl } = await downloadRes.json();
+  log('downloadUrl 取得完了');
+
+  const a = document.getElementById('result');
+  a.href = downloadUrl;
+  a.style.display = 'inline';
+  a.textContent = downloadUrl;
+});
+</script>
+</body>
+</html>
