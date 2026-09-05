@@ -1,4 +1,3 @@
-// cmd/upload-server/s3_adapter.go
 package main
 
 import (
