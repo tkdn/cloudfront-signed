@@ -60,6 +60,9 @@ go run ./cmd/upload-server \
 
 `http://localhost:8080/` をブラウザで開き、画像をアップロードすると閲覧用の署名付きURLが発行される。
 
+> [!NOTE]
+> `cmd/upload-server`は起動時に一度だけAWS認証情報を読み込み、プロセス生存期間中保持し続ける。STSの一時クレデンシャル（`aws login`等）が起動中に失効すると、S3へのPUTが`403`（`ExpiredToken`または`InvalidAccessKeyId`）で失敗する。認証情報を更新したら、必ず`ps aux | grep upload-server`で古いプロセスが残っていないか確認してから再起動すること。
+
 
 ---
 

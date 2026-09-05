@@ -1,4 +1,3 @@
-// cmd/upload-server/main.go
 package main
 
 import (
