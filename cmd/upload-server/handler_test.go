@@ -122,3 +122,54 @@ func TestPresignUpload_EmptyUserID(t *testing.T) {
 		t.Fatalf("status = %d, want 400", rec.Code)
 	}
 }
+
+func TestPresignDownload_Success(t *testing.T) {
+	srv := newTestServer()
+	body := strings.NewReader(`{"key":"users/alice/abc123.png"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/presign-download", body)
+	req.Header.Set("X-Upload-Secret", "test-secret")
+	rec := httptest.NewRecorder()
+
+	srv.ServeMux().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		DownloadURL string `json:"downloadUrl"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if got.DownloadURL != "https://cdn.example.com/signed-get" {
+		t.Fatalf("downloadUrl = %q, unexpected", got.DownloadURL)
+	}
+}
+
+func TestPresignDownload_WrongSecret(t *testing.T) {
+	srv := newTestServer()
+	body := strings.NewReader(`{"key":"users/alice/abc123.png"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/presign-download", body)
+	req.Header.Set("X-Upload-Secret", "wrong-secret")
+	rec := httptest.NewRecorder()
+
+	srv.ServeMux().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestPresignDownload_EmptyKey(t *testing.T) {
+	srv := newTestServer()
+	body := strings.NewReader(`{"key":""}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/presign-download", body)
+	req.Header.Set("X-Upload-Secret", "test-secret")
+	rec := httptest.NewRecorder()
+
+	srv.ServeMux().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}

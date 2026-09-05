@@ -29,6 +29,7 @@ type uploadServer struct {
 func newUploadServer(cfg uploadServerConfig) *uploadServer {
 	s := &uploadServer{cfg: cfg, mux: http.NewServeMux()}
 	s.mux.HandleFunc("/api/presign-upload", s.handlePresignUpload)
+	s.mux.HandleFunc("/api/presign-download", s.handlePresignDownload)
 	return s
 }
 
@@ -79,4 +80,37 @@ func (s *uploadServer) handlePresignUpload(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(presignUploadResponse{Key: key, UploadURL: uploadURL})
+}
+
+type presignDownloadRequest struct {
+	Key string `json:"key"`
+}
+
+type presignDownloadResponse struct {
+	DownloadURL string `json:"downloadUrl"`
+}
+
+func (s *uploadServer) handlePresignDownload(w http.ResponseWriter, r *http.Request) {
+	if !s.checkSecret(w, r) {
+		return
+	}
+
+	var req presignDownloadRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if req.Key == "" {
+		http.Error(w, "key must not be empty", http.StatusBadRequest)
+		return
+	}
+
+	downloadURL, err := s.cfg.CloudFrontSigner.SignDownloadURL(req.Key)
+	if err != nil {
+		http.Error(w, "sign download url: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(presignDownloadResponse{DownloadURL: downloadURL})
 }
