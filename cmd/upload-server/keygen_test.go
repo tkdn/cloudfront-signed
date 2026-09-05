@@ -13,6 +13,13 @@ func TestNewObjectKey_EmptyUserID(t *testing.T) {
 	}
 }
 
+func TestNewObjectKey_UserIDContainsSlash(t *testing.T) {
+	_, err := newObjectKey("alice/../bob", "image/png")
+	if !errors.Is(err, errInvalidUserID) {
+		t.Fatalf("got err=%v, want errInvalidUserID", err)
+	}
+}
+
 func TestNewObjectKey_InvalidContentType(t *testing.T) {
 	_, err := newObjectKey("alice", "application/octet-stream")
 	if !errors.Is(err, errInvalidContentType) {

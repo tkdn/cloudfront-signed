@@ -11,12 +11,16 @@ import (
 
 var (
 	errEmptyUserID        = errors.New("userId must not be empty")
+	errInvalidUserID      = errors.New("userId must not contain '/'")
 	errInvalidContentType = errors.New("contentType must start with image/")
 )
 
 func newObjectKey(userID, contentType string) (string, error) {
 	if userID == "" {
 		return "", errEmptyUserID
+	}
+	if strings.Contains(userID, "/") {
+		return "", errInvalidUserID
 	}
 	if !strings.HasPrefix(contentType, "image/") {
 		return "", errInvalidContentType

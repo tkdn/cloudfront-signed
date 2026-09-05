@@ -35,6 +35,9 @@ func run() error {
 		flag.Usage()
 		return fmt.Errorf("missing required flag(s)")
 	}
+	if *expires <= 0 {
+		return fmt.Errorf("-expires must be a positive duration")
+	}
 
 	f, err := os.Open(*privateKeyPath)
 	if err != nil {
@@ -60,7 +63,7 @@ func run() error {
 		Bucket:           *bucket,
 		UploadSecret:     *uploadSecret,
 		S3Presigner:      newRealS3Presigner(s3Client, *expires),
-		CloudFrontSigner: newRealCloudFrontSigner(*cloudfrontDomain, *keyPairID, urlSigner, *expires),
+		CloudFrontSigner: newRealCloudFrontSigner(*cloudfrontDomain, urlSigner, *expires),
 	})
 	srv.ServeMux().Handle("/", http.FileServer(http.Dir("web")))
 
