@@ -42,3 +42,14 @@ resource "aws_s3_bucket_policy" "origin" {
   bucket = aws_s3_bucket.origin.id
   policy = data.aws_iam_policy_document.origin.json
 }
+
+resource "aws_s3_bucket_cors_configuration" "this" {
+  bucket = aws_s3_bucket.origin.id
+
+  cors_rule {
+    allowed_origins = ["http://localhost:8080"]
+    allowed_methods = ["PUT"]
+    allowed_headers = ["Content-Type"]
+    max_age_seconds = 3000
+  }
+}
