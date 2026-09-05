@@ -39,8 +39,10 @@ terraform.rc
 # CloudFront signing private key (public key is committed intentionally)
 keys/private_key.pem
 
-# Go build artifact (go build ./... output)
+# Go build artifacts (go build ./... output)
 /cloudfront-signed
+/sign-cli
+/upload-server
 
 # Scratch files (e.g. PR drafts)
 tmp/
