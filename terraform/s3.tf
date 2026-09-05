@@ -43,7 +43,7 @@ resource "aws_s3_bucket_policy" "origin" {
   policy = data.aws_iam_policy_document.origin.json
 }
 
-resource "aws_s3_bucket_cors_configuration" "this" {
+resource "aws_s3_bucket_cors_configuration" "origin" {
   bucket = aws_s3_bucket.origin.id
 
   cors_rule {
