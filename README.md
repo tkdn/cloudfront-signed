@@ -5,15 +5,15 @@ CloudFront Signed URLの仕組みを学習目的で検証するリポジトリ�
 ## 検証したこと
 
 1. **CloudFront Custom Policyによる署名付きURLの発行** — Canned Policyではなく、ユーザースコープのパス制限（`/users/{userId}/*`）をResourceフィールドで表現できるCustom Policyを採用
-2. **ブラウザからのS3直接アップロード** — S3 Presigned URL(PUT)を発行し、画像バイト列がブラウザ→S3へ直接流れる構成（サーバーは中継しない）を確認
-3. **アップロード直後の閲覧フロー** — アップロード完了後にCloudFront Signed URL(GET)を発行し、実際に画像を閲覧できることを確認
+2. **GitHub/esa.io型のS3アップロードフロー** — S3 POST Policyを発行し、ブラウザがS3へ直接POSTする構成（サーバーは中継しない）で、完了通知・実体確認・CloudFront署名付きURLへのリダイレクトまでの一連のライフサイクルを確認（詳細は[docs/upload-sequence.md](docs/upload-sequence.md)のシーケンス図を参照）
+3. **google/wireによるコンパイル時DI** — `cmd/upload-server`の依存解決（S3アダプタ・CloudFront署名器・アセットストア）を手動組み立てから`google/wire`の生成コードに置き換え、使い勝手を検証
 
 ## 構成
 
 ```
 terraform/          CloudFront・S3・Secrets Managerの検証環境
 cmd/sign-cli/        Custom Policyで署名付きURL(GET)を発行するCLI
-cmd/upload-server/   S3 Presigned URL(PUT)とCloudFront Signed URL(GET)を発行するHTTPサーバー
+cmd/upload-server/   S3 POST PolicyとCloudFront Signed URL(GET)を発行するHTTPサーバー
 web/index.html       ブラウザから動作確認するためのビルドレスUI
 keys/                検証用鍵ペア（秘密鍵はコミット対象外）
 docs/                各段階の設計判断・実装計画
@@ -49,19 +49,26 @@ go run ./cmd/sign-cli \
 
 **アップロード検証サーバーを起動する:**
 
+`cmd/upload-server`の設定はコマンドラインflagではなく環境変数（`UPLOAD_SERVER_`プレフィックス）で渡す。`.envrc`（[direnv](https://direnv.net/)）に以下のように書いておくと起動が楽になる。
+
 ```bash
-go run ./cmd/upload-server \
-  -bucket "$(terraform -chdir=terraform output -raw s3_bucket_name)" \
-  -cloudfront-domain "$(terraform -chdir=terraform output -raw cloudfront_domain_name)" \
-  -key-pair-id "$(terraform -chdir=terraform output -raw cloudfront_public_key_id)" \
-  -private-key keys/private_key.pem \
-  -upload-secret "DONT_USE_THIS_CODE"
+export UPLOAD_SERVER_BUCKET="$(terraform -chdir=terraform output -raw s3_bucket_name)"
+export UPLOAD_SERVER_CLOUDFRONT_DOMAIN="$(terraform -chdir=terraform output -raw cloudfront_domain_name)"
+export UPLOAD_SERVER_KEY_PAIR_ID="$(terraform -chdir=terraform output -raw cloudfront_public_key_id)"
+export UPLOAD_SERVER_PRIVATE_KEY="keys/private_key.pem"
+export UPLOAD_SERVER_UPLOAD_SECRET="DONT_USE_THIS_CODE"
 ```
+
+```bash
+go run ./cmd/upload-server
+```
+
+`UPLOAD_SERVER_ADDR`（デフォルト`:8080`）と`UPLOAD_SERVER_EXPIRES`（デフォルト`15m`、署名付きURL・確認トークンの有効期限）は省略可能。必須の環境変数が不足している場合は、不足している変数名を列挙したエラーメッセージとともに終了する。
 
 `http://localhost:8080/` をブラウザで開き、画像をアップロードすると閲覧用の署名付きURLが発行される。
 
 > [!NOTE]
-> `cmd/upload-server`は起動時に一度だけAWS認証情報を読み込み、プロセス生存期間中保持し続ける。STSの一時クレデンシャル（`aws login`等）が起動中に失効すると、S3へのPUTが`403`（`ExpiredToken`または`InvalidAccessKeyId`）で失敗する。認証情報を更新したら、必ず`ps aux | grep upload-server`で古いプロセスが残っていないか確認してから再起動すること。
+> `cmd/upload-server`は起動時に一度だけAWS認証情報を読み込み、プロセス生存期間中保持し続ける。STSの一時クレデンシャル（`aws login`等）が起動中に失効すると、S3へのPOSTが`403`（`ExpiredToken`または`InvalidAccessKeyId`）で失敗する。認証情報を更新したら、必ず`ps aux | grep upload-server`で古いプロセスが残っていないか確認してから再起動すること。
 
 
 ---
