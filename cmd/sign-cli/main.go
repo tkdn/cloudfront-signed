@@ -41,7 +41,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("open private key: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	signer, err := sign.LoadPEMPrivKeyPKCS8AsSigner(f)
 	if err != nil {
