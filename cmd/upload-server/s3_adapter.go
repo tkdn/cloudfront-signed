@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
@@ -36,8 +35,8 @@ func newRealS3Adapter(client *s3.Client) *realS3Adapter {
 
 func (a *realS3Adapter) PresignPostPolicy(ctx context.Context, bucket, key, contentType string, size int64, expires time.Duration) (postPolicyForm, error) {
 	req, err := a.presignClient.PresignPostObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
+		Bucket: new(bucket),
+		Key:    new(key),
 	}, func(o *s3.PresignPostOptions) {
 		o.Expires = expires
 		// GitHub/esa.ioの実測と同じく最小=最大に固定し、サイズ制約をS3の署名検証に転嫁する。
@@ -59,8 +58,8 @@ func (a *realS3Adapter) HeadObject(ctx context.Context, bucket, key string) erro
 	// サイズ・Content-Typeの一致はPresignPostPolicyのConditionsでS3の署名検証時に
 	// 既に強制されているため、ここでは実体の存在確認のみ行う。
 	_, err := a.client.HeadObject(ctx, &s3.HeadObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
+		Bucket: new(bucket),
+		Key:    new(key),
 	})
 	if err != nil {
 		return fmt.Errorf("head object: %w", err)

@@ -22,11 +22,11 @@ type assetRecord struct {
 }
 
 type assetStore interface {
-	// Create inserts a new record; it returns errAssetAlreadyExists if id is already taken.
+	// idが既に存在する場合はerrAssetAlreadyExistsを返す。
 	Create(ctx context.Context, rec assetRecord) error
 	Get(ctx context.Context, id string) (assetRecord, error)
-	// Confirm sets ConfirmedAt if not already set; confirming an
-	// already-confirmed record is a no-op success (idempotent).
+	// 未確定の場合のみConfirmedAtを設定する。確定済みレコードへの呼び出しは
+	// 冪等な成功として扱い、最初の確定時刻を保持する。
 	Confirm(ctx context.Context, id string, confirmedAt time.Time) error
 }
 
@@ -41,7 +41,6 @@ func newMemoryAssetStore() *memoryAssetStore {
 	return &memoryAssetStore{records: make(map[string]assetRecord)}
 }
 
-// Create inserts a new record; it returns errAssetAlreadyExists if id is already taken.
 func (s *memoryAssetStore) Create(_ context.Context, rec assetRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -62,9 +61,6 @@ func (s *memoryAssetStore) Get(_ context.Context, id string) (assetRecord, error
 	return rec, nil
 }
 
-// Confirm sets ConfirmedAt only if the record is not yet confirmed.
-// Calling Confirm on an already-confirmed record is a no-op success,
-// so ConfirmedAt reflects the first confirmation, not the latest retry.
 func (s *memoryAssetStore) Confirm(_ context.Context, id string, confirmedAt time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

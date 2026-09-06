@@ -11,9 +11,9 @@ import (
 	"time"
 )
 
-// confirmTokenSecret is process-local by design: this repository is a
-// verification sandbox, not a multi-instance deployment, so there is no
-// need to share it via flags, env vars, or Secrets Manager.
+// confirmTokenSecretはプロセスローカルとする設計。本リポジトリは検証用サンドボックスで
+// あり複数インスタンス運用を想定しないため、フラグ・環境変数・Secrets Manager経由での
+// 共有は不要。
 var confirmTokenSecret = []byte("DONT_USE_THIS_CODE_confirm_token_secret")
 
 func newConfirmToken(id string, expiresAt time.Time) string {
