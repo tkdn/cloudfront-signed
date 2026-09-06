@@ -5,7 +5,7 @@
 <title>Upload &amp; Signed URL Demo</title>
 </head>
 <body>
-<h1>S3 Upload -&gt; CloudFront Signed URL Demo</h1>
+<h1>S3 Upload (POST Policy) -&gt; CloudFront Signed URL Demo</h1>
 
 <label>User ID: <input id="userId" value="alice"></label><br>
 <label>Upload Secret: <input id="secret" value="DONT_USE_THIS_CODE"></label><br>
@@ -13,7 +13,7 @@
 <button id="uploadBtn">Upload</button>
 
 <pre id="log"></pre>
-<a id="result" href="#" target="_blank" style="display:none">Open signed URL</a>
+<a id="result" href="#" target="_blank" style="display:none">Open asset (redirects to signed URL)</a>
 
 <script>
 function log(msg) {
@@ -30,54 +30,57 @@ document.getElementById('uploadBtn').addEventListener('click', async () => {
     return;
   }
 
-  log('presign-upload を要求中...');
-  const presignRes = await fetch('/api/presign-upload', {
+  log('upload policies を要求中...');
+  const policiesRes = await fetch('/api/upload/policies', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'X-Upload-Secret': secret,
     },
-    body: JSON.stringify({ userId: userId, contentType: file.type }),
+    body: JSON.stringify({ userId: userId, contentType: file.type, size: file.size }),
   });
-  if (!presignRes.ok) {
-    log('presign-upload 失敗: ' + presignRes.status);
+  if (!policiesRes.ok) {
+    log('upload policies 失敗: ' + policiesRes.status);
     return;
   }
-  const { key, uploadUrl } = await presignRes.json();
-  log('key = ' + key);
+  const { id, confirmToken, form } = await policiesRes.json();
+  log('id = ' + id);
 
-  log('S3へPUT中...');
-  const putRes = await fetch(uploadUrl, {
-    method: 'PUT',
-    headers: { 'Content-Type': file.type },
-    body: file,
-  });
-  if (!putRes.ok) {
-    log('S3 PUT 失敗: ' + putRes.status);
-    return;
+  log('S3へPOST中...');
+  const formData = new FormData();
+  for (const [key, value] of Object.entries(form.fields)) {
+    formData.append(key, value);
   }
-  log('S3 PUT 成功 (status=' + putRes.status + ')');
-
-  log('presign-download を要求中...');
-  const downloadRes = await fetch('/api/presign-download', {
+  formData.append('file', file);
+  const postRes = await fetch(form.url, {
     method: 'POST',
+    body: formData,
+  });
+  if (!postRes.ok) {
+    log('S3 POST 失敗: ' + postRes.status);
+    return;
+  }
+  log('S3 POST 成功 (status=' + postRes.status + ')');
+
+  log('完了通知を送信中...');
+  const confirmRes = await fetch('/api/upload/assets/' + id, {
+    method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
       'X-Upload-Secret': secret,
     },
-    body: JSON.stringify({ key: key }),
+    body: JSON.stringify({ confirmToken: confirmToken }),
   });
-  if (!downloadRes.ok) {
-    log('presign-download 失敗: ' + downloadRes.status);
+  if (!confirmRes.ok) {
+    log('完了通知 失敗: ' + confirmRes.status);
     return;
   }
-  const { downloadUrl } = await downloadRes.json();
-  log('downloadUrl 取得完了');
+  log('完了通知 成功');
 
   const a = document.getElementById('result');
-  a.href = downloadUrl;
+  a.href = '/assets/' + id;
   a.style.display = 'inline';
-  a.textContent = downloadUrl;
+  a.textContent = '/assets/' + id;
 });
 </script>
 </body>
