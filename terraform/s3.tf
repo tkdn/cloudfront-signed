@@ -49,7 +49,9 @@ resource "aws_s3_bucket_cors_configuration" "origin" {
   cors_rule {
     allowed_origins = var.upload_cors_allowed_origins
     allowed_methods = ["POST"]
-    allowed_headers = ["*"]
+    # web/index.htmlはFormDataをContent-Typeヘッダー未指定のfetchでPOSTしており、
+    # ブラウザが自動付与するmultipart/form-dataはCORSのsimple content-typeに該当する
+    # ためpreflightが発生せず、allowed_headersは評価されない（実測でOPTIONS無しを確認済み）。
     max_age_seconds = 3000
   }
 }
