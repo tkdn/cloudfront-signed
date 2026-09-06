@@ -13,7 +13,7 @@
 <button id="uploadBtn">Upload</button>
 
 <pre id="log"></pre>
-<a id="result" href="#" target="_blank" style="display:none">Open asset (redirects to signed URL)</a>
+<img id="result" src="" style="display:none; max-width: 400px;">
 
 <script>
 function log(msg) {
@@ -77,10 +77,9 @@ document.getElementById('uploadBtn').addEventListener('click', async () => {
   }
   log('完了通知 成功');
 
-  const a = document.getElementById('result');
-  a.href = '/assets/' + id;
-  a.style.display = 'inline';
-  a.textContent = '/assets/' + id;
+  const img = document.getElementById('result');
+  img.src = '/assets/' + id;
+  img.style.display = 'inline';
 });
 </script>
 </body>
