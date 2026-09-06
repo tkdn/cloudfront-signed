@@ -1,4 +1,3 @@
-// cmd/upload-server/wire.go
 //go:build wireinject
 
 package main

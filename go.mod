@@ -6,6 +6,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.33.3
 	github.com/aws/aws-sdk-go-v2/feature/cloudfront/sign v1.12.1
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.111.0
+	github.com/google/wire v0.7.0
 )
 
 require (
@@ -26,7 +27,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.49.0 // indirect
 	github.com/aws/smithy-go v1.28.1 // indirect
 	github.com/google/subcommands v1.2.0 // indirect
-	github.com/google/wire v0.7.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	golang.org/x/mod v0.20.0 // indirect
 	golang.org/x/sync v0.8.0 // indirect
