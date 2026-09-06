@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"flag"
 	"fmt"
 	"os"
@@ -32,10 +33,7 @@ func run() error {
 		return fmt.Errorf("-expires must be a positive duration")
 	}
 
-	res := *resource
-	if res == "" {
-		res = *url
-	}
+	res := cmp.Or(*resource, *url)
 
 	f, err := os.Open(*privateKeyPath)
 	if err != nil {

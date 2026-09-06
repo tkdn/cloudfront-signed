@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
@@ -22,15 +23,12 @@ const defaultExpires = 15 * time.Minute
 
 func loadConfig() (config, error) {
 	cfg := config{
-		Addr:             os.Getenv("UPLOAD_SERVER_ADDR"),
+		Addr:             cmp.Or(os.Getenv("UPLOAD_SERVER_ADDR"), ":8080"),
 		Bucket:           os.Getenv("UPLOAD_SERVER_BUCKET"),
 		CloudFrontDomain: os.Getenv("UPLOAD_SERVER_CLOUDFRONT_DOMAIN"),
 		KeyPairID:        os.Getenv("UPLOAD_SERVER_KEY_PAIR_ID"),
 		PrivateKeyPath:   os.Getenv("UPLOAD_SERVER_PRIVATE_KEY"),
 		UploadSecret:     os.Getenv("UPLOAD_SERVER_UPLOAD_SECRET"),
-	}
-	if cfg.Addr == "" {
-		cfg.Addr = ":8080"
 	}
 
 	var missing []string
