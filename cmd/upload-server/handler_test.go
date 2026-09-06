@@ -8,20 +8,31 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
-type fakeS3Presigner struct {
-	url string
+type fakePostPolicyPresigner struct {
+	form postPolicyForm
+	err  error
+}
+
+var _ s3PostPolicyPresigner = (*fakePostPolicyPresigner)(nil)
+
+func (f *fakePostPolicyPresigner) PresignPostPolicy(_ context.Context, _, _, _ string, _ int64, _ time.Duration) (postPolicyForm, error) {
+	if f.err != nil {
+		return postPolicyForm{}, f.err
+	}
+	return f.form, nil
+}
+
+type fakeHeadChecker struct {
 	err error
 }
 
-var _ s3Presigner = (*fakeS3Presigner)(nil)
+var _ s3ObjectHeadChecker = (*fakeHeadChecker)(nil)
 
-func (f *fakeS3Presigner) PresignPutObject(ctx context.Context, bucket, key, contentType string) (string, error) {
-	if f.err != nil {
-		return "", f.err
-	}
-	return f.url, nil
+func (f *fakeHeadChecker) HeadObject(_ context.Context, _, _ string) error {
+	return f.err
 }
 
 type fakeCloudFrontSigner struct {
@@ -31,25 +42,35 @@ type fakeCloudFrontSigner struct {
 
 var _ cloudFrontSigner = (*fakeCloudFrontSigner)(nil)
 
-func (f *fakeCloudFrontSigner) SignDownloadURL(key string) (string, error) {
+func (f *fakeCloudFrontSigner) SignDownloadURL(_ string) (string, error) {
 	if f.err != nil {
 		return "", f.err
 	}
 	return f.url, nil
 }
 
-func newTestServer() *uploadServer {
-	return newUploadServer(uploadServerConfig{
-		UploadSecret:     "test-secret",
-		S3Presigner:      &fakeS3Presigner{url: "https://bucket.s3.example.com/signed-put"},
+func newTestServer() (*uploadServer, *memoryAssetStore) {
+	store := newMemoryAssetStore()
+	srv := newUploadServer(uploadServerConfig{
+		Bucket:         "test-bucket",
+		UploadSecret:   "test-secret",
+		PostExpires:    15 * time.Minute,
+		ConfirmExpires: 15 * time.Minute,
+		Store:          store,
+		S3Presigner: &fakePostPolicyPresigner{form: postPolicyForm{
+			URL:    "https://bucket.s3.example.com/",
+			Fields: map[string]string{"key": "placeholder"},
+		}},
+		S3HeadChecker:    &fakeHeadChecker{},
 		CloudFrontSigner: &fakeCloudFrontSigner{url: "https://cdn.example.com/signed-get"},
 	})
+	return srv, store
 }
 
-func TestPresignUpload_Success(t *testing.T) {
-	srv := newTestServer()
-	body := strings.NewReader(`{"userId":"alice","contentType":"image/png"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/presign-upload", body)
+func TestUploadPolicies_Success(t *testing.T) {
+	srv, _ := newTestServer()
+	body := strings.NewReader(`{"userId":"alice","contentType":"image/png","size":22945}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/upload/policies", body)
 	req.Header.Set("X-Upload-Secret", "test-secret")
 	rec := httptest.NewRecorder()
 
@@ -59,24 +80,34 @@ func TestPresignUpload_Success(t *testing.T) {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 	var got struct {
-		Key       string `json:"key"`
-		UploadURL string `json:"uploadUrl"`
+		ID           string `json:"id"`
+		ConfirmToken string `json:"confirmToken"`
+		Form         struct {
+			URL    string            `json:"url"`
+			Fields map[string]string `json:"fields"`
+		} `json:"form"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	if got.UploadURL != "https://bucket.s3.example.com/signed-put" {
-		t.Fatalf("uploadUrl = %q, unexpected", got.UploadURL)
+	if !strings.HasPrefix(got.ID, "users/alice/") {
+		t.Fatalf("id = %q, want prefix users/alice/", got.ID)
 	}
-	if !strings.HasPrefix(got.Key, "users/alice/") {
-		t.Fatalf("key = %q, want prefix users/alice/", got.Key)
+	if got.ConfirmToken == "" {
+		t.Fatalf("confirmToken must not be empty")
+	}
+	if got.Form.URL != "https://bucket.s3.example.com/" {
+		t.Fatalf("form.url = %q, unexpected", got.Form.URL)
+	}
+	if !verifyConfirmToken(got.ID, got.ConfirmToken) {
+		t.Fatalf("issued confirmToken does not verify against issued id")
 	}
 }
 
-func TestPresignUpload_WrongSecret(t *testing.T) {
-	srv := newTestServer()
-	body := strings.NewReader(`{"userId":"alice","contentType":"image/png"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/presign-upload", body)
+func TestUploadPolicies_WrongSecret(t *testing.T) {
+	srv, _ := newTestServer()
+	body := strings.NewReader(`{"userId":"alice","contentType":"image/png","size":22945}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/upload/policies", body)
 	req.Header.Set("X-Upload-Secret", "wrong-secret")
 	rec := httptest.NewRecorder()
 
@@ -87,23 +118,10 @@ func TestPresignUpload_WrongSecret(t *testing.T) {
 	}
 }
 
-func TestPresignUpload_MissingSecret(t *testing.T) {
-	srv := newTestServer()
-	body := strings.NewReader(`{"userId":"alice","contentType":"image/png"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/presign-upload", body)
-	rec := httptest.NewRecorder()
-
-	srv.ServeMux().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", rec.Code)
-	}
-}
-
-func TestPresignUpload_InvalidContentType(t *testing.T) {
-	srv := newTestServer()
-	body := strings.NewReader(`{"userId":"alice","contentType":"application/octet-stream"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/presign-upload", body)
+func TestUploadPolicies_InvalidContentType(t *testing.T) {
+	srv, _ := newTestServer()
+	body := strings.NewReader(`{"userId":"alice","contentType":"application/octet-stream","size":100}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/upload/policies", body)
 	req.Header.Set("X-Upload-Secret", "test-secret")
 	rec := httptest.NewRecorder()
 
@@ -114,10 +132,10 @@ func TestPresignUpload_InvalidContentType(t *testing.T) {
 	}
 }
 
-func TestPresignUpload_EmptyUserID(t *testing.T) {
-	srv := newTestServer()
-	body := strings.NewReader(`{"userId":"","contentType":"image/png"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/presign-upload", body)
+func TestUploadPolicies_EmptyUserID(t *testing.T) {
+	srv, _ := newTestServer()
+	body := strings.NewReader(`{"userId":"","contentType":"image/png","size":100}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/upload/policies", body)
 	req.Header.Set("X-Upload-Secret", "test-secret")
 	rec := httptest.NewRecorder()
 
@@ -128,10 +146,10 @@ func TestPresignUpload_EmptyUserID(t *testing.T) {
 	}
 }
 
-func TestPresignUpload_UserIDContainsSlash(t *testing.T) {
-	srv := newTestServer()
-	body := strings.NewReader(`{"userId":"alice/../bob","contentType":"image/png"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/presign-upload", body)
+func TestUploadPolicies_NonPositiveSize(t *testing.T) {
+	srv, _ := newTestServer()
+	body := strings.NewReader(`{"userId":"alice","contentType":"image/png","size":0}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/upload/policies", body)
 	req.Header.Set("X-Upload-Secret", "test-secret")
 	rec := httptest.NewRecorder()
 
@@ -142,9 +160,9 @@ func TestPresignUpload_UserIDContainsSlash(t *testing.T) {
 	}
 }
 
-func TestPresignUpload_MethodNotAllowed(t *testing.T) {
-	srv := newTestServer()
-	req := httptest.NewRequest(http.MethodGet, "/api/presign-upload", nil)
+func TestUploadPolicies_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer()
+	req := httptest.NewRequest(http.MethodGet, "/api/upload/policies", nil)
 	req.Header.Set("X-Upload-Secret", "test-secret")
 	rec := httptest.NewRecorder()
 
@@ -155,14 +173,20 @@ func TestPresignUpload_MethodNotAllowed(t *testing.T) {
 	}
 }
 
-func TestPresignUpload_PresignerError(t *testing.T) {
+func TestUploadPolicies_PresignerError(t *testing.T) {
+	store := newMemoryAssetStore()
 	srv := newUploadServer(uploadServerConfig{
+		Bucket:           "test-bucket",
 		UploadSecret:     "test-secret",
-		S3Presigner:      &fakeS3Presigner{err: errors.New("boom")},
+		PostExpires:      15 * time.Minute,
+		ConfirmExpires:   15 * time.Minute,
+		Store:            store,
+		S3Presigner:      &fakePostPolicyPresigner{err: errors.New("boom")},
+		S3HeadChecker:    &fakeHeadChecker{},
 		CloudFrontSigner: &fakeCloudFrontSigner{url: "https://cdn.example.com/signed-get"},
 	})
-	body := strings.NewReader(`{"userId":"alice","contentType":"image/png"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/presign-upload", body)
+	body := strings.NewReader(`{"userId":"alice","contentType":"image/png","size":100}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/upload/policies", body)
 	req.Header.Set("X-Upload-Secret", "test-secret")
 	rec := httptest.NewRecorder()
 
@@ -173,10 +197,32 @@ func TestPresignUpload_PresignerError(t *testing.T) {
 	}
 }
 
-func TestPresignDownload_Success(t *testing.T) {
-	srv := newTestServer()
-	body := strings.NewReader(`{"key":"users/alice/abc123.png"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/presign-download", body)
+func createTestAsset(t *testing.T, srv *uploadServer) (id, confirmToken string) {
+	t.Helper()
+	body := strings.NewReader(`{"userId":"alice","contentType":"image/png","size":100}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/upload/policies", body)
+	req.Header.Set("X-Upload-Secret", "test-secret")
+	rec := httptest.NewRecorder()
+	srv.ServeMux().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("setup: status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		ID           string `json:"id"`
+		ConfirmToken string `json:"confirmToken"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("setup: unmarshal response: %v", err)
+	}
+	return got.ID, got.ConfirmToken
+}
+
+func TestConfirmAsset_Success(t *testing.T) {
+	srv, store := newTestServer()
+	id, token := createTestAsset(t, srv)
+
+	body := strings.NewReader(`{"confirmToken":"` + token + `"}`)
+	req := httptest.NewRequest(http.MethodPatch, "/api/upload/assets/"+id, body)
 	req.Header.Set("X-Upload-Secret", "test-secret")
 	rec := httptest.NewRecorder()
 
@@ -185,21 +231,21 @@ func TestPresignDownload_Success(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	var got struct {
-		DownloadURL string `json:"downloadUrl"`
+	got, err := store.Get(context.Background(), id)
+	if err != nil {
+		t.Fatalf("store.Get: unexpected error: %v", err)
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if got.DownloadURL != "https://cdn.example.com/signed-get" {
-		t.Fatalf("downloadUrl = %q, unexpected", got.DownloadURL)
+	if got.ConfirmedAt == nil {
+		t.Fatalf("ConfirmedAt = nil, want non-nil after confirm")
 	}
 }
 
-func TestPresignDownload_WrongSecret(t *testing.T) {
-	srv := newTestServer()
-	body := strings.NewReader(`{"key":"users/alice/abc123.png"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/presign-download", body)
+func TestConfirmAsset_WrongSecret(t *testing.T) {
+	srv, _ := newTestServer()
+	id, token := createTestAsset(t, srv)
+
+	body := strings.NewReader(`{"confirmToken":"` + token + `"}`)
+	req := httptest.NewRequest(http.MethodPatch, "/api/upload/assets/"+id, body)
 	req.Header.Set("X-Upload-Secret", "wrong-secret")
 	rec := httptest.NewRecorder()
 
@@ -210,23 +256,80 @@ func TestPresignDownload_WrongSecret(t *testing.T) {
 	}
 }
 
-func TestPresignDownload_EmptyKey(t *testing.T) {
-	srv := newTestServer()
-	body := strings.NewReader(`{"key":""}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/presign-download", body)
+func TestConfirmAsset_WrongToken(t *testing.T) {
+	srv, _ := newTestServer()
+	id, _ := createTestAsset(t, srv)
+
+	body := strings.NewReader(`{"confirmToken":"wrong-token"}`)
+	req := httptest.NewRequest(http.MethodPatch, "/api/upload/assets/"+id, body)
 	req.Header.Set("X-Upload-Secret", "test-secret")
 	rec := httptest.NewRecorder()
 
 	srv.ServeMux().ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", rec.Code)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
 	}
 }
 
-func TestPresignDownload_MethodNotAllowed(t *testing.T) {
-	srv := newTestServer()
-	req := httptest.NewRequest(http.MethodGet, "/api/presign-download", nil)
+func TestConfirmAsset_UnknownID(t *testing.T) {
+	srv, _ := newTestServer()
+	unknownID := "users/alice/does-not-exist.png"
+	token := newConfirmToken(unknownID, time.Now().Add(15*time.Minute))
+
+	body := strings.NewReader(`{"confirmToken":"` + token + `"}`)
+	req := httptest.NewRequest(http.MethodPatch, "/api/upload/assets/"+unknownID, body)
+	req.Header.Set("X-Upload-Secret", "test-secret")
+	rec := httptest.NewRecorder()
+
+	srv.ServeMux().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestConfirmAsset_HeadObjectFails(t *testing.T) {
+	store := newMemoryAssetStore()
+	srv := newUploadServer(uploadServerConfig{
+		Bucket:         "test-bucket",
+		UploadSecret:   "test-secret",
+		PostExpires:    15 * time.Minute,
+		ConfirmExpires: 15 * time.Minute,
+		Store:          store,
+		S3Presigner: &fakePostPolicyPresigner{form: postPolicyForm{
+			URL:    "https://bucket.s3.example.com/",
+			Fields: map[string]string{"key": "placeholder"},
+		}},
+		S3HeadChecker:    &fakeHeadChecker{err: errors.New("not found in S3")},
+		CloudFrontSigner: &fakeCloudFrontSigner{url: "https://cdn.example.com/signed-get"},
+	})
+	id, token := createTestAsset(t, srv)
+
+	body := strings.NewReader(`{"confirmToken":"` + token + `"}`)
+	req := httptest.NewRequest(http.MethodPatch, "/api/upload/assets/"+id, body)
+	req.Header.Set("X-Upload-Secret", "test-secret")
+	rec := httptest.NewRecorder()
+
+	srv.ServeMux().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
+	}
+	got, err := store.Get(context.Background(), id)
+	if err != nil {
+		t.Fatalf("store.Get: unexpected error: %v", err)
+	}
+	if got.ConfirmedAt != nil {
+		t.Fatalf("ConfirmedAt = %v, want nil after failed HeadObject", *got.ConfirmedAt)
+	}
+}
+
+func TestConfirmAsset_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTestServer()
+	id, _ := createTestAsset(t, srv)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/upload/assets/"+id, nil)
 	req.Header.Set("X-Upload-Secret", "test-secret")
 	rec := httptest.NewRecorder()
 
@@ -237,15 +340,82 @@ func TestPresignDownload_MethodNotAllowed(t *testing.T) {
 	}
 }
 
-func TestPresignDownload_SignerError(t *testing.T) {
+func TestGetAsset_RedirectsToSignedURL(t *testing.T) {
+	srv, _ := newTestServer()
+	id, token := createTestAsset(t, srv)
+	confirmReq := httptest.NewRequest(http.MethodPatch, "/api/upload/assets/"+id, strings.NewReader(`{"confirmToken":"`+token+`"}`))
+	confirmReq.Header.Set("X-Upload-Secret", "test-secret")
+	confirmRec := httptest.NewRecorder()
+	srv.ServeMux().ServeHTTP(confirmRec, confirmReq)
+	if confirmRec.Code != http.StatusOK {
+		t.Fatalf("setup confirm: status = %d, want 200", confirmRec.Code)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/assets/"+id, nil)
+	rec := httptest.NewRecorder()
+
+	srv.ServeMux().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302; body=%s", rec.Code, rec.Body.String())
+	}
+	if loc := rec.Header().Get("Location"); loc != "https://cdn.example.com/signed-get" {
+		t.Fatalf("Location = %q, unexpected", loc)
+	}
+}
+
+func TestGetAsset_UnconfirmedReturnsNotFound(t *testing.T) {
+	srv, _ := newTestServer()
+	id, _ := createTestAsset(t, srv)
+
+	req := httptest.NewRequest(http.MethodGet, "/assets/"+id, nil)
+	rec := httptest.NewRecorder()
+
+	srv.ServeMux().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestGetAsset_UnknownID(t *testing.T) {
+	srv, _ := newTestServer()
+
+	req := httptest.NewRequest(http.MethodGet, "/assets/users/alice/does-not-exist.png", nil)
+	rec := httptest.NewRecorder()
+
+	srv.ServeMux().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestGetAsset_SignerError(t *testing.T) {
+	store := newMemoryAssetStore()
 	srv := newUploadServer(uploadServerConfig{
-		UploadSecret:     "test-secret",
-		S3Presigner:      &fakeS3Presigner{url: "https://bucket.s3.example.com/signed-put"},
+		Bucket:         "test-bucket",
+		UploadSecret:   "test-secret",
+		PostExpires:    15 * time.Minute,
+		ConfirmExpires: 15 * time.Minute,
+		Store:          store,
+		S3Presigner: &fakePostPolicyPresigner{form: postPolicyForm{
+			URL:    "https://bucket.s3.example.com/",
+			Fields: map[string]string{"key": "placeholder"},
+		}},
+		S3HeadChecker:    &fakeHeadChecker{},
 		CloudFrontSigner: &fakeCloudFrontSigner{err: errors.New("boom")},
 	})
-	body := strings.NewReader(`{"key":"users/alice/abc123.png"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/presign-download", body)
-	req.Header.Set("X-Upload-Secret", "test-secret")
+	id, token := createTestAsset(t, srv)
+	confirmReq := httptest.NewRequest(http.MethodPatch, "/api/upload/assets/"+id, strings.NewReader(`{"confirmToken":"`+token+`"}`))
+	confirmReq.Header.Set("X-Upload-Secret", "test-secret")
+	confirmRec := httptest.NewRecorder()
+	srv.ServeMux().ServeHTTP(confirmRec, confirmReq)
+	if confirmRec.Code != http.StatusOK {
+		t.Fatalf("setup confirm: status = %d, want 200", confirmRec.Code)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/assets/"+id, nil)
 	rec := httptest.NewRecorder()
 
 	srv.ServeMux().ServeHTTP(rec, req)
