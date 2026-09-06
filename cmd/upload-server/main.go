@@ -27,7 +27,7 @@ func run() error {
 	keyPairID := flag.String("key-pair-id", "", "CloudFront public key ID (required)")
 	privateKeyPath := flag.String("private-key", "", "path to PKCS8 PEM private key (required)")
 	uploadSecret := flag.String("upload-secret", "", "shared secret required in X-Upload-Secret header (required)")
-	expires := flag.Duration("expires", 15*time.Minute, "signed download URL validity duration from now")
+	expires := flag.Duration("expires", 15*time.Minute, "signed URL / confirm token validity duration from now")
 	flag.Parse()
 
 	if *bucket == "" || *cloudfrontDomain == "" || *keyPairID == "" || *privateKeyPath == "" || *uploadSecret == "" {
@@ -55,16 +55,21 @@ func run() error {
 		return fmt.Errorf("load AWS config: %w", err)
 	}
 	s3Client := s3.NewFromConfig(awsCfg)
+	s3Adapter := newRealS3Adapter(s3Client)
 
 	urlSigner := sign.NewURLSigner(*keyPairID, signer)
 
 	srv := newUploadServer(uploadServerConfig{
 		Bucket:           *bucket,
 		UploadSecret:     *uploadSecret,
-		S3Presigner:      newRealS3Presigner(s3Client, *expires),
+		PostExpires:      *expires,
+		ConfirmExpires:   *expires,
+		StaticDir:        "web",
+		Store:            newMemoryAssetStore(),
+		S3Presigner:      s3Adapter,
+		S3HeadChecker:    s3Adapter,
 		CloudFrontSigner: newRealCloudFrontSigner(*cloudfrontDomain, urlSigner, *expires),
 	})
-	srv.ServeMux().Handle("/", http.FileServer(http.Dir("web")))
 
 	fmt.Fprintf(os.Stderr, "listening on %s\n", *addr)
 	return http.ListenAndServe(*addr, srv.ServeMux())

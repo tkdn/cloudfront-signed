@@ -1,16 +1,13 @@
 package main
 
 import (
-	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
+	"time"
 )
-
-type s3Presigner interface {
-	PresignPutObject(ctx context.Context, bucket, key, contentType string) (url string, err error)
-}
 
 type cloudFrontSigner interface {
 	SignDownloadURL(key string) (url string, err error)
@@ -19,7 +16,12 @@ type cloudFrontSigner interface {
 type uploadServerConfig struct {
 	Bucket           string
 	UploadSecret     string
-	S3Presigner      s3Presigner
+	PostExpires      time.Duration
+	ConfirmExpires   time.Duration
+	StaticDir        string
+	Store            assetStore
+	S3Presigner      s3PostPolicyPresigner
+	S3HeadChecker    s3ObjectHeadChecker
 	CloudFrontSigner cloudFrontSigner
 }
 
@@ -30,8 +32,12 @@ type uploadServer struct {
 
 func newUploadServer(cfg uploadServerConfig) *uploadServer {
 	s := &uploadServer{cfg: cfg, mux: http.NewServeMux()}
-	s.mux.HandleFunc("POST /api/presign-upload", s.handlePresignUpload)
-	s.mux.HandleFunc("POST /api/presign-download", s.handlePresignDownload)
+	s.mux.HandleFunc("POST /api/upload/policies", s.handleUploadPolicies)
+	s.mux.HandleFunc("PATCH /api/upload/assets/{id...}", s.handleConfirmAsset)
+	s.mux.HandleFunc("GET /assets/{id...}", s.handleGetAsset)
+	if cfg.StaticDir != "" {
+		s.mux.Handle("/", http.FileServer(http.Dir(cfg.StaticDir)))
+	}
 	return s
 }
 
@@ -48,76 +54,142 @@ func (s *uploadServer) checkSecret(w http.ResponseWriter, r *http.Request) bool 
 	return true
 }
 
-type presignUploadRequest struct {
+type uploadPoliciesRequest struct {
 	UserID      string `json:"userId"`
 	ContentType string `json:"contentType"`
+	Size        int64  `json:"size"`
 }
 
-type presignUploadResponse struct {
-	Key       string `json:"key"`
-	UploadURL string `json:"uploadUrl"`
+type uploadPoliciesResponse struct {
+	ID           string         `json:"id"`
+	ConfirmToken string         `json:"confirmToken"`
+	Form         postPolicyForm `json:"form"`
 }
 
-func (s *uploadServer) handlePresignUpload(w http.ResponseWriter, r *http.Request) {
+func (s *uploadServer) handleUploadPolicies(w http.ResponseWriter, r *http.Request) {
 	if !s.checkSecret(w, r) {
 		return
 	}
 
-	var req presignUploadRequest
+	var req uploadPoliciesRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
+	if req.Size <= 0 {
+		http.Error(w, "size must be a positive integer", http.StatusBadRequest)
+		return
+	}
 
-	key, err := newObjectKey(req.UserID, req.ContentType)
+	id, err := newObjectKey(req.UserID, req.ContentType)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	uploadURL, err := s.cfg.S3Presigner.PresignPutObject(r.Context(), s.cfg.Bucket, key, req.ContentType)
+	form, err := s.cfg.S3Presigner.PresignPostPolicy(r.Context(), s.cfg.Bucket, id, req.ContentType, req.Size, s.cfg.PostExpires)
 	if err != nil {
-		http.Error(w, "presign upload url: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "presign post policy: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	now := time.Now()
+	rec := assetRecord{
+		ID:          id,
+		UserID:      req.UserID,
+		ContentType: req.ContentType,
+		Size:        req.Size,
+		CreatedAt:   now,
+	}
+	if err := s.cfg.Store.Create(r.Context(), rec); err != nil {
+		if errors.Is(err, errAssetAlreadyExists) {
+			http.Error(w, "asset id collision, retry", http.StatusConflict)
+			return
+		}
+		http.Error(w, "create asset record: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	token := newConfirmToken(id, now.Add(s.cfg.ConfirmExpires))
+
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(presignUploadResponse{Key: key, UploadURL: uploadURL}); err != nil {
-		log.Printf("encode presign-upload response: %v", err)
+	resp := uploadPoliciesResponse{
+		ID:           id,
+		ConfirmToken: token,
+		Form:         form,
+	}
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("encode upload-policies response: %v", err)
 	}
 }
 
-type presignDownloadRequest struct {
-	Key string `json:"key"`
+type confirmAssetRequest struct {
+	ConfirmToken string `json:"confirmToken"`
 }
 
-type presignDownloadResponse struct {
-	DownloadURL string `json:"downloadUrl"`
-}
-
-func (s *uploadServer) handlePresignDownload(w http.ResponseWriter, r *http.Request) {
+func (s *uploadServer) handleConfirmAsset(w http.ResponseWriter, r *http.Request) {
 	if !s.checkSecret(w, r) {
 		return
 	}
 
-	var req presignDownloadRequest
+	id := r.PathValue("id")
+
+	var req confirmAssetRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
-	if req.Key == "" {
-		http.Error(w, "key must not be empty", http.StatusBadRequest)
+
+	if !verifyConfirmToken(id, req.ConfirmToken) {
+		http.Error(w, "invalid or expired confirmToken", http.StatusUnauthorized)
 		return
 	}
 
-	downloadURL, err := s.cfg.CloudFrontSigner.SignDownloadURL(req.Key)
+	rec, err := s.cfg.Store.Get(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, errAssetNotFound) {
+			http.Error(w, "asset not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "get asset record: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err := s.cfg.S3HeadChecker.HeadObject(r.Context(), s.cfg.Bucket, rec.ID); err != nil {
+		http.Error(w, "object not found in S3: "+err.Error(), http.StatusNotFound)
+		return
+	}
+
+	if err := s.cfg.Store.Confirm(r.Context(), id, time.Now()); err != nil {
+		http.Error(w, "confirm asset record: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *uploadServer) handleGetAsset(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	rec, err := s.cfg.Store.Get(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, errAssetNotFound) {
+			http.Error(w, "asset not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "get asset record: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if rec.ConfirmedAt == nil {
+		http.Error(w, "asset not confirmed", http.StatusNotFound)
+		return
+	}
+
+	downloadURL, err := s.cfg.CloudFrontSigner.SignDownloadURL(rec.ID)
 	if err != nil {
 		http.Error(w, "sign download url: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(presignDownloadResponse{DownloadURL: downloadURL}); err != nil {
-		log.Printf("encode presign-download response: %v", err)
-	}
+	http.Redirect(w, r, downloadURL, http.StatusFound)
 }
