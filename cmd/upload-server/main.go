@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"net/http"
 	"os"
-	"time"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/feature/cloudfront/sign"
@@ -21,24 +19,12 @@ func main() {
 }
 
 func run() error {
-	addr := flag.String("addr", ":8080", "HTTP server listen address")
-	bucket := flag.String("bucket", "", "S3 bucket name for uploads (required)")
-	cloudfrontDomain := flag.String("cloudfront-domain", "", "CloudFront domain for signed download URLs (required)")
-	keyPairID := flag.String("key-pair-id", "", "CloudFront public key ID (required)")
-	privateKeyPath := flag.String("private-key", "", "path to PKCS8 PEM private key (required)")
-	uploadSecret := flag.String("upload-secret", "", "shared secret required in X-Upload-Secret header (required)")
-	expires := flag.Duration("expires", 15*time.Minute, "signed URL / confirm token validity duration from now")
-	flag.Parse()
-
-	if *bucket == "" || *cloudfrontDomain == "" || *keyPairID == "" || *privateKeyPath == "" || *uploadSecret == "" {
-		flag.Usage()
-		return fmt.Errorf("missing required flag(s)")
-	}
-	if *expires <= 0 {
-		return fmt.Errorf("-expires must be a positive duration")
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
 	}
 
-	f, err := os.Open(*privateKeyPath)
+	f, err := os.Open(cfg.PrivateKeyPath)
 	if err != nil {
 		return fmt.Errorf("open private key: %w", err)
 	}
@@ -55,22 +41,22 @@ func run() error {
 		return fmt.Errorf("load AWS config: %w", err)
 	}
 	s3Client := s3.NewFromConfig(awsCfg)
-	s3Adapter := newRealS3Adapter(s3Client)
+	urlSigner := sign.NewURLSigner(cfg.KeyPairID, signer)
 
-	urlSigner := sign.NewURLSigner(*keyPairID, signer)
+	deps := initializeUploadServerDeps(s3Client, urlSigner, cfg.CloudFrontDomain, cfg.Expires)
 
 	srv := newUploadServer(uploadServerConfig{
-		Bucket:           *bucket,
-		UploadSecret:     *uploadSecret,
-		PostExpires:      *expires,
-		ConfirmExpires:   *expires,
+		Bucket:           cfg.Bucket,
+		UploadSecret:     cfg.UploadSecret,
+		PostExpires:      cfg.Expires,
+		ConfirmExpires:   cfg.Expires,
 		StaticDir:        "web",
-		Store:            newMemoryAssetStore(),
-		S3Presigner:      s3Adapter,
-		S3HeadChecker:    s3Adapter,
-		CloudFrontSigner: newRealCloudFrontSigner(*cloudfrontDomain, urlSigner, *expires),
+		Store:            deps.Store,
+		S3Presigner:      deps.S3Presigner,
+		S3HeadChecker:    deps.S3HeadChecker,
+		CloudFrontSigner: deps.CloudFrontSigner,
 	})
 
-	fmt.Fprintf(os.Stderr, "listening on %s\n", *addr)
-	return http.ListenAndServe(*addr, srv.ServeMux())
+	fmt.Fprintf(os.Stderr, "listening on %s\n", cfg.Addr)
+	return http.ListenAndServe(cfg.Addr, srv.ServeMux())
 }
