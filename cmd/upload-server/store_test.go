@@ -74,3 +74,47 @@ func TestMemoryAssetStore_ConfirmNotFound(t *testing.T) {
 		t.Fatalf("Confirm: err = %v, want errAssetNotFound", err)
 	}
 }
+
+func TestMemoryAssetStore_ConfirmIdempotent(t *testing.T) {
+	store := newMemoryAssetStore()
+	ctx := context.Background()
+	rec := assetRecord{ID: "users/alice/abc123.png", UserID: "alice", ContentType: "image/png", Size: 100, CreatedAt: time.Now()}
+	if err := store.Create(ctx, rec); err != nil {
+		t.Fatalf("Create: unexpected error: %v", err)
+	}
+
+	firstConfirm := time.Now()
+	if err := store.Confirm(ctx, rec.ID, firstConfirm); err != nil {
+		t.Fatalf("first Confirm: unexpected error: %v", err)
+	}
+
+	secondConfirm := firstConfirm.Add(time.Hour)
+	if err := store.Confirm(ctx, rec.ID, secondConfirm); err != nil {
+		t.Fatalf("second Confirm: unexpected error: %v", err)
+	}
+
+	got, err := store.Get(ctx, rec.ID)
+	if err != nil {
+		t.Fatalf("Get: unexpected error: %v", err)
+	}
+	if got.ConfirmedAt == nil {
+		t.Fatalf("ConfirmedAt = nil, want non-nil")
+	}
+	if !got.ConfirmedAt.Equal(firstConfirm) {
+		t.Fatalf("ConfirmedAt = %v, want first confirm time %v (should not be overwritten by second call)", *got.ConfirmedAt, firstConfirm)
+	}
+}
+
+func TestMemoryAssetStore_CreateDuplicateID(t *testing.T) {
+	store := newMemoryAssetStore()
+	ctx := context.Background()
+	rec := assetRecord{ID: "users/alice/abc123.png", UserID: "alice", ContentType: "image/png", Size: 100, CreatedAt: time.Now()}
+	if err := store.Create(ctx, rec); err != nil {
+		t.Fatalf("first Create: unexpected error: %v", err)
+	}
+
+	err := store.Create(ctx, rec)
+	if !errors.Is(err, errAssetAlreadyExists) {
+		t.Fatalf("second Create: err = %v, want errAssetAlreadyExists", err)
+	}
+}

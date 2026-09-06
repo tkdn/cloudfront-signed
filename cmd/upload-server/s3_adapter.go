@@ -36,23 +36,28 @@ func newRealS3Adapter(client *s3.Client) *realS3Adapter {
 
 func (a *realS3Adapter) PresignPostPolicy(ctx context.Context, bucket, key, contentType string, size int64, expires time.Duration) (postPolicyForm, error) {
 	req, err := a.presignClient.PresignPostObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(bucket),
-		Key:         aws.String(key),
-		ContentType: aws.String(contentType),
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
 	}, func(o *s3.PresignPostOptions) {
 		o.Expires = expires
 		// GitHub/esa.ioの実測と同じく最小=最大に固定し、サイズ制約をS3の署名検証に転嫁する。
+		// PutObjectInput.ContentTypeはPresignPostObjectでは無視されるため、Conditionsで明示する。
 		o.Conditions = []any{
 			[]any{"content-length-range", size, size},
+			map[string]string{"Content-Type": contentType},
 		}
 	})
 	if err != nil {
 		return postPolicyForm{}, fmt.Errorf("presign post object: %w", err)
 	}
+	// SDKはConditionsで指定したContent-TypeをFieldsへ反映しないため、フォームフィールドとして明示的に追加する。
+	req.Values["Content-Type"] = contentType
 	return postPolicyForm{URL: req.URL, Fields: req.Values}, nil
 }
 
 func (a *realS3Adapter) HeadObject(ctx context.Context, bucket, key string) error {
+	// サイズ・Content-Typeの一致はPresignPostPolicyのConditionsでS3の署名検証時に
+	// 既に強制されているため、ここでは実体の存在確認のみ行う。
 	_, err := a.client.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),

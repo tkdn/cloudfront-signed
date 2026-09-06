@@ -19,3 +19,17 @@ func TestPostPolicyForm_FieldsShape(t *testing.T) {
 		t.Fatalf("Fields[key] = %q, unexpected", form.Fields["key"])
 	}
 }
+
+func TestPostPolicyForm_FieldsShape_ContentType(t *testing.T) {
+	form := postPolicyForm{
+		URL: "https://bucket.s3.amazonaws.com/",
+		Fields: map[string]string{
+			"key":          "users/alice/abc123.png",
+			"policy":       "eyJ...",
+			"Content-Type": "image/png",
+		},
+	}
+	if form.Fields["Content-Type"] != "image/png" {
+		t.Fatalf("Fields[Content-Type] = %q, unexpected", form.Fields["Content-Type"])
+	}
+}

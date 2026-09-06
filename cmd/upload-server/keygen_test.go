@@ -58,6 +58,13 @@ func TestNewObjectKey_ExtensionByContentType(t *testing.T) {
 	}
 }
 
+func TestNewObjectKey_UnresolvableExtension(t *testing.T) {
+	_, err := newObjectKey("alice", "image/x-completely-unknown-subtype")
+	if !errors.Is(err, errUnresolvableFileExt) {
+		t.Fatalf("got err=%v, want errUnresolvableFileExt", err)
+	}
+}
+
 func TestNewObjectKey_Unique(t *testing.T) {
 	key1, err := newObjectKey("alice", "image/png")
 	if err != nil {

@@ -173,6 +173,28 @@ func TestUploadPolicies_MethodNotAllowed(t *testing.T) {
 	}
 }
 
+func TestUploadPolicies_MethodNotAllowed_WithStaticDir(t *testing.T) {
+	srv := newUploadServer(uploadServerConfig{
+		UploadSecret:     "test-secret",
+		StaticDir:        ".", // 実在するディレクトリなら何でもよい（cmd/upload-serverのソースディレクトリ自体を使う）
+		Store:            newMemoryAssetStore(),
+		S3Presigner:      &fakePostPolicyPresigner{},
+		S3HeadChecker:    &fakeHeadChecker{},
+		CloudFrontSigner: &fakeCloudFrontSigner{},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/upload/policies", nil)
+	req.Header.Set("X-Upload-Secret", "test-secret")
+	rec := httptest.NewRecorder()
+
+	srv.ServeMux().ServeHTTP(rec, req)
+
+	// StaticDirが設定されている場合、method-awareルートにマッチしないリクエストは
+	// FileServerにフォールバックする（405ではなくFileServer側のステータスになる）。
+	if rec.Code == http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want non-405 (FileServer fallback) when StaticDir is set", rec.Code)
+	}
+}
+
 func TestUploadPolicies_PresignerError(t *testing.T) {
 	store := newMemoryAssetStore()
 	srv := newUploadServer(uploadServerConfig{

@@ -64,12 +64,12 @@ func run() error {
 		UploadSecret:     *uploadSecret,
 		PostExpires:      *expires,
 		ConfirmExpires:   *expires,
+		StaticDir:        "web",
 		Store:            newMemoryAssetStore(),
 		S3Presigner:      s3Adapter,
 		S3HeadChecker:    s3Adapter,
 		CloudFrontSigner: newRealCloudFrontSigner(*cloudfrontDomain, urlSigner, *expires),
 	})
-	srv.ServeMux().Handle("/", http.FileServer(http.Dir("web")))
 
 	fmt.Fprintf(os.Stderr, "listening on %s\n", *addr)
 	return http.ListenAndServe(*addr, srv.ServeMux())

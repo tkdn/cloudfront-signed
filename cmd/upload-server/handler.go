@@ -18,6 +18,7 @@ type uploadServerConfig struct {
 	UploadSecret     string
 	PostExpires      time.Duration
 	ConfirmExpires   time.Duration
+	StaticDir        string
 	Store            assetStore
 	S3Presigner      s3PostPolicyPresigner
 	S3HeadChecker    s3ObjectHeadChecker
@@ -34,6 +35,9 @@ func newUploadServer(cfg uploadServerConfig) *uploadServer {
 	s.mux.HandleFunc("POST /api/upload/policies", s.handleUploadPolicies)
 	s.mux.HandleFunc("PATCH /api/upload/assets/{id...}", s.handleConfirmAsset)
 	s.mux.HandleFunc("GET /assets/{id...}", s.handleGetAsset)
+	if cfg.StaticDir != "" {
+		s.mux.Handle("/", http.FileServer(http.Dir(cfg.StaticDir)))
+	}
 	return s
 }
 
@@ -98,6 +102,10 @@ func (s *uploadServer) handleUploadPolicies(w http.ResponseWriter, r *http.Reque
 		CreatedAt:   now,
 	}
 	if err := s.cfg.Store.Create(r.Context(), rec); err != nil {
+		if errors.Is(err, errAssetAlreadyExists) {
+			http.Error(w, "asset id collision, retry", http.StatusConflict)
+			return
+		}
 		http.Error(w, "create asset record: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

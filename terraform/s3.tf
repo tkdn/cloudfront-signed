@@ -48,8 +48,8 @@ resource "aws_s3_bucket_cors_configuration" "origin" {
 
   cors_rule {
     allowed_origins = var.upload_cors_allowed_origins
-    allowed_methods = ["PUT"]
-    allowed_headers = ["Content-Type"]
+    allowed_methods = ["POST"]
+    allowed_headers = ["*"]
     max_age_seconds = 3000
   }
 }
