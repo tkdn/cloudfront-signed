@@ -168,6 +168,8 @@ func (s *uploadServer) handleConfirmAsset(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)
 }
 
+// 検証目的のため認証・認可を行わずidの推測困難性のみに依存している。実運用では
+// ここでリクエスト元の認証（セッション等）とアセットへのアクセス認可を必須にすること。
 func (s *uploadServer) handleGetAsset(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
