@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/config"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/feature/cloudfront/sign"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
@@ -50,7 +50,7 @@ func run() error {
 	}
 
 	ctx := context.Background()
-	awsCfg, err := config.LoadDefaultConfig(ctx)
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
 	if err != nil {
 		return fmt.Errorf("load AWS config: %w", err)
 	}
