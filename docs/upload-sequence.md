@@ -42,6 +42,80 @@ sequenceDiagram
     CloudFront-->>User: 200 画像データ
 ```
 
+## 異常系
+
+### アップロードポリシー発行時のエラー
+
+```mermaid
+sequenceDiagram
+    actor User as ブラウザ
+    participant Server as upload-server
+    participant S3
+
+    User->>Server: POST /api/upload/policies
+    alt X-Upload-Secret不一致
+        Server-->>User: 401 Unauthorized
+    else size <= 0
+        Server-->>User: 400 Bad Request
+    else contentTypeがimage/以外、または拡張子を解決できない
+        Server-->>User: 400 Bad Request
+    else id衝突（乱数の偶発的重複）
+        Server->>Server: assetStore.Create(id, ...) → errAssetAlreadyExists
+        Server-->>User: 409 Conflict
+    else S3側の署名発行エラー
+        Server->>S3: PresignPostObject(...)
+        S3-->>Server: エラー
+        Server-->>User: 500 Internal Server Error
+    end
+```
+
+### 完了通知時のエラー
+
+```mermaid
+sequenceDiagram
+    actor User as ブラウザ
+    participant Server as upload-server
+    participant S3
+
+    User->>Server: PATCH /api/upload/assets/{id}
+    alt X-Upload-Secret不一致
+        Server-->>User: 401 Unauthorized
+    else confirmTokenが不正・期限切れ
+        Server->>Server: verifyConfirmToken(id, confirmToken) → false
+        Server-->>User: 401 Unauthorized
+        Note right of Server: assetStore.Getより先に検証するため、<br/>存在しないidでも同じ応答になる
+    else レコードが存在しない
+        Server->>Server: assetStore.Get(id) → errAssetNotFound
+        Server-->>User: 404 Not Found
+    else S3にオブジェクトが存在しない（アップロード未完了・失敗）
+        Server->>S3: HeadObject(bucket, id)
+        S3-->>Server: エラー
+        Server-->>User: 404 Not Found
+        Note right of Server: assetStore.Confirmは呼ばれず、<br/>ConfirmedAtはnilのまま維持される
+    end
+```
+
+### アセット表示時のエラー
+
+```mermaid
+sequenceDiagram
+    actor User as ブラウザ
+    participant Server as upload-server
+    participant CloudFront
+
+    User->>Server: GET /assets/{id}
+    alt レコードが存在しない
+        Server->>Server: assetStore.Get(id) → errAssetNotFound
+        Server-->>User: 404 Not Found
+    else 完了通知がまだ行われていない（ConfirmedAt == nil）
+        Server-->>User: 404 Not Found
+    else CloudFront署名の発行に失敗
+        Server->>CloudFront: SignDownloadURL(id)
+        CloudFront-->>Server: エラー
+        Server-->>User: 500 Internal Server Error
+    end
+```
+
 ## 各ステップの要点
 
 ### 1. アップロードポリシー発行 (`POST /api/upload/policies`)
