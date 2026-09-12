@@ -13,14 +13,15 @@ import (
 
 func newMockTestServer(t *testing.T) *uploadServer {
 	t.Helper()
-	dir := t.TempDir()
-	storage := newMockS3Adapter(dir)
-	routes := newMockRouteRegistrar(
-		config{Bucket: "mock-bucket", UploadSecret: "test-secret", Expires: 15 * time.Minute},
-		newMemoryAssetStore(),
-		storage,
-		"http://127.0.0.1:8080",
-	)
+	cfg := config{
+		Bucket:         "mock-bucket",
+		UploadSecret:   "test-secret",
+		Expires:        15 * time.Minute,
+		MockStorageDir: t.TempDir(),
+		MockBaseURL:    "http://127.0.0.1:8080",
+	}
+	storage := newMockS3Adapter(cfg)
+	routes := newMockRouteRegistrar(cfg, newMemoryAssetStore(), storage)
 	return newUploadServer(uploadServerConfig{Routes: routes})
 }
 

@@ -23,12 +23,12 @@ type mockRouteRegistrar struct {
 
 var _ routeRegistrar = (*mockRouteRegistrar)(nil)
 
-func newMockRouteRegistrar(cfg config, store assetStore, storage *mockS3Adapter, baseURL string) *mockRouteRegistrar {
+func newMockRouteRegistrar(cfg config, store assetStore, storage *mockS3Adapter) *mockRouteRegistrar {
 	return &mockRouteRegistrar{
 		cfg:     cfg,
 		store:   store,
 		storage: storage,
-		baseURL: strings.TrimRight(baseURL, "/"),
+		baseURL: strings.TrimRight(cfg.MockBaseURL, "/"),
 	}
 }
 

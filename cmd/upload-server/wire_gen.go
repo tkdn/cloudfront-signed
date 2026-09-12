@@ -22,3 +22,10 @@ func initializeRealRouteRegistrar(s3Client *s3.Client, urlSigner *sign.URLSigner
 	mainRealRouteRegistrar := newRealRouteRegistrar(cfg, mainMemoryAssetStore, mainRealS3Adapter, mainRealS3Adapter, mainRealCloudFrontSigner)
 	return mainRealRouteRegistrar
 }
+
+func initializeMockRouteRegistrar(cfg config) routeRegistrar {
+	mainMemoryAssetStore := newMemoryAssetStore()
+	mainMockS3Adapter := newMockS3Adapter(cfg)
+	mainMockRouteRegistrar := newMockRouteRegistrar(cfg, mainMemoryAssetStore, mainMockS3Adapter)
+	return mainMockRouteRegistrar
+}

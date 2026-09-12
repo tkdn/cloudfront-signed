@@ -18,8 +18,8 @@ type mockS3Adapter struct {
 var _ s3PostPolicyPresigner = (*mockS3Adapter)(nil)
 var _ s3ObjectHeadChecker = (*mockS3Adapter)(nil)
 
-func newMockS3Adapter(rootDir string) *mockS3Adapter {
-	return &mockS3Adapter{rootDir: rootDir}
+func newMockS3Adapter(cfg config) *mockS3Adapter {
+	return &mockS3Adapter{rootDir: cfg.MockStorageDir}
 }
 
 // PresignPostPolicyはS3への署名付きPOSTの代わりに、keyとcontentTypeのみを

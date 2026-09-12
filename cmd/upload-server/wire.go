@@ -23,3 +23,14 @@ func initializeRealRouteRegistrar(s3Client *s3.Client, urlSigner *sign.URLSigner
 	)
 	return nil
 }
+
+func initializeMockRouteRegistrar(cfg config) routeRegistrar {
+	wire.Build(
+		wire.Bind(new(routeRegistrar), new(*mockRouteRegistrar)),
+		wire.Bind(new(assetStore), new(*memoryAssetStore)),
+		newMockS3Adapter,
+		newMemoryAssetStore,
+		newMockRouteRegistrar,
+	)
+	return nil
+}
