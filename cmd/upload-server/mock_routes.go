@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -112,6 +113,11 @@ func (r *mockRouteRegistrar) handleUploadPolicies(w http.ResponseWriter, req *ht
 // handleUploadObjectはPresignPostPolicyが発行したURLへのmultipart POSTを
 // 受け付け、ファイル本体をローカルストレージへ保存する。real環境のS3への
 // 直接POSTを模した動作。
+//
+// real環境ではS3のPOST Policy条件（content-length-range・Content-Type）が
+// 申告値との一致を強制するため、mockでも同じ契約をhandleUploadPolicies時に
+// 記録したassetRecordとの突き合わせで再現する。この検証を省くと、mockで
+// 確認した挙動がreal環境の挙動を代表しなくなる。
 func (r *mockRouteRegistrar) handleUploadObject(w http.ResponseWriter, req *http.Request) {
 	id := req.PathValue("id")
 	if id == "" {
@@ -119,10 +125,26 @@ func (r *mockRouteRegistrar) handleUploadObject(w http.ResponseWriter, req *http
 		return
 	}
 
+	rec, err := r.store.Get(req.Context(), id)
+	if err != nil {
+		if errors.Is(err, errAssetNotFound) {
+			http.Error(w, "asset not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "get asset record: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	if err := req.ParseMultipartForm(32 << 20); err != nil {
 		http.Error(w, "parse multipart form: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	if gotContentType := req.FormValue("Content-Type"); gotContentType != rec.ContentType {
+		http.Error(w, fmt.Sprintf("content-type mismatch: got %q, want %q", gotContentType, rec.ContentType), http.StatusBadRequest)
+		return
+	}
+
 	file, _, err := req.FormFile("file")
 	if err != nil {
 		http.Error(w, "missing file field: "+err.Error(), http.StatusBadRequest)
@@ -133,6 +155,11 @@ func (r *mockRouteRegistrar) handleUploadObject(w http.ResponseWriter, req *http
 	data, err := io.ReadAll(file)
 	if err != nil {
 		http.Error(w, "read uploaded file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if int64(len(data)) != rec.Size {
+		http.Error(w, fmt.Sprintf("size mismatch: got %d bytes, want %d", len(data), rec.Size), http.StatusBadRequest)
 		return
 	}
 

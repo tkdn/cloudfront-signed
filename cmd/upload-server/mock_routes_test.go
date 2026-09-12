@@ -6,6 +6,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -118,13 +119,97 @@ func TestMockUploadFlow_EndToEnd(t *testing.T) {
 
 func TestMockHandleUploadObject_MissingFileField(t *testing.T) {
 	srv := newMockTestServer(t)
+	_, _, fields, url := issueMockPolicy(t, srv, "image/png", 4)
+
+	var buf strings.Builder
+	w := multipart.NewWriter(&buf)
+	for k, v := range fields {
+		if err := w.WriteField(k, v); err != nil {
+			t.Fatalf("WriteField: %v", err)
+		}
+	}
+	_ = w.Close()
+
+	req := httptest.NewRequest(http.MethodPost, url, strings.NewReader(buf.String()))
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	rec := httptest.NewRecorder()
+
+	srv.ServeMux().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMockHandleUploadObject_UnknownID(t *testing.T) {
+	srv := newMockTestServer(t)
 
 	var buf strings.Builder
 	w := multipart.NewWriter(&buf)
 	_ = w.Close()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/upload/objects/users/alice/foo.png", strings.NewReader(buf.String()))
+	req := httptest.NewRequest(http.MethodPost, "/api/upload/objects/users/alice/does-not-exist.png", strings.NewReader(buf.String()))
 	req.Header.Set("Content-Type", w.FormDataContentType())
+	rec := httptest.NewRecorder()
+
+	srv.ServeMux().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func issueMockPolicy(t *testing.T, srv *uploadServer, contentType string, size int64) (id, confirmToken string, fields map[string]string, url string) {
+	t.Helper()
+	policyBody := strings.NewReader(`{"userId":"alice","contentType":"` + contentType + `","size":` + strconv.FormatInt(size, 10) + `}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/upload/policies", policyBody)
+	req.Header.Set("X-Upload-Secret", "test-secret")
+	rec := httptest.NewRecorder()
+	srv.ServeMux().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("policies: status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var policy struct {
+		ID           string `json:"id"`
+		ConfirmToken string `json:"confirmToken"`
+		Form         struct {
+			URL    string            `json:"url"`
+			Fields map[string]string `json:"fields"`
+		} `json:"form"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &policy); err != nil {
+		t.Fatalf("unmarshal policy response: %v", err)
+	}
+	return policy.ID, policy.ConfirmToken, policy.Form.Fields, policy.Form.URL
+}
+
+func TestMockHandleUploadObject_SizeMismatch(t *testing.T) {
+	srv := newMockTestServer(t)
+	_, _, fields, url := issueMockPolicy(t, srv, "image/png", 100)
+
+	// 申告サイズ(100)と実際のペイロード("data" = 4バイト)が一致しない。
+	body, contentType := buildMultipartBody(t, fields, []byte("data"))
+	req := httptest.NewRequest(http.MethodPost, url, body)
+	req.Header.Set("Content-Type", contentType)
+	rec := httptest.NewRecorder()
+
+	srv.ServeMux().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMockHandleUploadObject_ContentTypeMismatch(t *testing.T) {
+	srv := newMockTestServer(t)
+	fileContent := []byte("data")
+	_, _, fields, url := issueMockPolicy(t, srv, "image/png", int64(len(fileContent)))
+
+	// フォームのContent-Typeフィールドをポリシー発行時と異なる値に差し替える。
+	fields["Content-Type"] = "application/octet-stream"
+	body, contentType := buildMultipartBody(t, fields, fileContent)
+	req := httptest.NewRequest(http.MethodPost, url, body)
+	req.Header.Set("Content-Type", contentType)
 	rec := httptest.NewRecorder()
 
 	srv.ServeMux().ServeHTTP(rec, req)
