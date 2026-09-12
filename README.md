@@ -70,6 +70,21 @@ go run ./cmd/upload-server
 > [!NOTE]
 > `cmd/upload-server`は起動時に一度だけAWS認証情報を読み込み、プロセス生存期間中保持し続ける。STSの一時クレデンシャル（`aws login`等）が起動中に失効すると、S3へのPOSTが`403`（`ExpiredToken`または`InvalidAccessKeyId`）で失敗する。認証情報を更新したら、必ず`ps aux | grep upload-server`で古いプロセスが残っていないか確認してから再起動すること。
 
+**AWSを使わずローカルモックで起動する:**
+
+`UPLOAD_SERVER_MODE=mock`を指定すると、S3・CloudFrontへの実際のAWS呼び出しを一切行わず、ローカルファイルシステムへの保存・配信で同じAPIフロー（ポリシー発行→アップロード→確認→閲覧）を確認できる。AWS認証情報・CloudFront秘密鍵は不要。
+
+```bash
+export UPLOAD_SERVER_MODE="mock"
+export UPLOAD_SERVER_BUCKET="mock-bucket"
+export UPLOAD_SERVER_UPLOAD_SECRET="DONT_USE_THIS_CODE"
+# 省略時は起動のたびに一時ディレクトリが作られる
+export UPLOAD_SERVER_MOCK_STORAGE_DIR="tmp/mock-storage"
+
+go run ./cmd/upload-server
+```
+
+`http://localhost:8080/`を開いて通常通りアップロード〜閲覧を試せる。アップロードされたファイルの実体は`UPLOAD_SERVER_MOCK_STORAGE_DIR`配下にオブジェクトキーと同じ相対パス（`users/{userId}/{ランダムID}.{拡張子}`）で保存される。
 
 ---
 
