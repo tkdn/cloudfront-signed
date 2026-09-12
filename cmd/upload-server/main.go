@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 
@@ -79,19 +78,6 @@ func newMockRoutes(cfg config) (routeRegistrar, error) {
 		cfg.MockStorageDir = dir
 		fmt.Fprintf(os.Stderr, "UPLOAD_SERVER_MOCK_STORAGE_DIR not set, using temporary dir: %s\n", dir)
 	}
-	if cfg.MockBaseURL == "" {
-		cfg.MockBaseURL = defaultMockBaseURL(cfg.Addr)
-	}
 
 	return initializeMockRouteRegistrar(cfg), nil
-}
-
-// defaultMockBaseURLはlisten addr（例: ":8080", "0.0.0.0:8080"）から
-// ループバック経由でアクセス可能な絶対オリジンを組み立てる。
-func defaultMockBaseURL(addr string) string {
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil || host == "" || host == "0.0.0.0" || host == "::" {
-		host = "127.0.0.1"
-	}
-	return fmt.Sprintf("http://%s:%s", host, port)
 }

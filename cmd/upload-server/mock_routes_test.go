@@ -18,7 +18,6 @@ func newMockTestServer(t *testing.T) *uploadServer {
 		UploadSecret:   "test-secret",
 		Expires:        15 * time.Minute,
 		MockStorageDir: t.TempDir(),
-		MockBaseURL:    "http://127.0.0.1:8080",
 	}
 	storage := newMockS3Adapter(cfg)
 	routes := newMockRouteRegistrar(cfg, newMemoryAssetStore(), storage)
@@ -69,6 +68,15 @@ func TestMockUploadFlow_EndToEnd(t *testing.T) {
 	}
 	if err := json.Unmarshal(policyRec.Body.Bytes(), &policy); err != nil {
 		t.Fatalf("unmarshal policy response: %v", err)
+	}
+	// form.URLは相対パスであること（絶対URLだとブラウザから見て別オリジン
+	// 扱いになりCORSエラーの原因になるため、常にリクエスト元と同一オリジンで
+	// 解決される相対パスを返す必要がある）。
+	if strings.HasPrefix(policy.Form.URL, "http://") || strings.HasPrefix(policy.Form.URL, "https://") {
+		t.Fatalf("form.url = %q, want a relative path (no scheme/host) to avoid cross-origin requests", policy.Form.URL)
+	}
+	if !strings.HasPrefix(policy.Form.URL, "/api/upload/objects/") {
+		t.Fatalf("form.url = %q, want prefix /api/upload/objects/", policy.Form.URL)
 	}
 
 	// 2. multipart POSTでアップロード

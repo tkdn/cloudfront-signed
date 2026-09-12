@@ -19,7 +19,6 @@ func clearUploadServerEnv(t *testing.T) {
 		"UPLOAD_SERVER_EXPIRES",
 		"UPLOAD_SERVER_MODE",
 		"UPLOAD_SERVER_MOCK_STORAGE_DIR",
-		"UPLOAD_SERVER_MOCK_BASE_URL",
 	}
 	for _, v := range vars {
 		t.Setenv(v, "")

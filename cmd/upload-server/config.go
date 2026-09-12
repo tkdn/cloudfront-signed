@@ -26,7 +26,6 @@ type config struct {
 	UploadSecret     string
 	Expires          time.Duration
 	MockStorageDir   string
-	MockBaseURL      string
 }
 
 const defaultExpires = 15 * time.Minute
@@ -46,7 +45,6 @@ func loadConfig() (config, error) {
 		PrivateKeyPath:   os.Getenv("UPLOAD_SERVER_PRIVATE_KEY"),
 		UploadSecret:     os.Getenv("UPLOAD_SERVER_UPLOAD_SECRET"),
 		MockStorageDir:   os.Getenv("UPLOAD_SERVER_MOCK_STORAGE_DIR"),
-		MockBaseURL:      os.Getenv("UPLOAD_SERVER_MOCK_BASE_URL"),
 	}
 
 	var missing []string

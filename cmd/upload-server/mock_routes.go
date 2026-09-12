@@ -7,18 +7,22 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 )
 
 // mockRouteRegistrarはAWSを一切呼び出さず、ローカルファイルシステムのみで
 // 完結するルート実装。GET /assets/{id}は実ファイルを直接配信する
 // （real版のようなCloudFront署名URLへのリダイレクトは行わない）。
+//
+// アップロード受け口(/api/upload/objects/{id})はこのサーバー自身が
+// 提供するため、form.URLは常に相対パスを返す。絶対URL（ホスト名や
+// スキームを含む値）にすると、ブラウザからは別オリジン扱いになり
+// CORSエラーの原因になる（例: localhostで開いたページに対して
+// 127.0.0.1宛の絶対URLを返すと失敗する）。
 type mockRouteRegistrar struct {
 	cfg     config
 	store   assetStore
 	storage *mockS3Adapter
-	baseURL string
 }
 
 var _ routeRegistrar = (*mockRouteRegistrar)(nil)
@@ -28,7 +32,6 @@ func newMockRouteRegistrar(cfg config, store assetStore, storage *mockS3Adapter)
 		cfg:     cfg,
 		store:   store,
 		storage: storage,
-		baseURL: strings.TrimRight(cfg.MockBaseURL, "/"),
 	}
 }
 
@@ -74,7 +77,7 @@ func (r *mockRouteRegistrar) handleUploadPolicies(w http.ResponseWriter, req *ht
 		http.Error(w, "presign post policy: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	form.URL = r.baseURL + "/api/upload/objects/" + id
+	form.URL = "/api/upload/objects/" + id
 
 	now := time.Now()
 	rec := assetRecord{
