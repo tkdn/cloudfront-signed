@@ -51,19 +51,17 @@ func (f *fakeCloudFrontSigner) SignDownloadURL(_ string) (string, error) {
 
 func newTestServer() (*uploadServer, *memoryAssetStore) {
 	store := newMemoryAssetStore()
-	srv := newUploadServer(uploadServerConfig{
-		Bucket:         "test-bucket",
-		UploadSecret:   "test-secret",
-		PostExpires:    15 * time.Minute,
-		ConfirmExpires: 15 * time.Minute,
-		Store:          store,
-		S3Presigner: &fakePostPolicyPresigner{form: postPolicyForm{
+	routes := newRealRouteRegistrar(
+		config{Bucket: "test-bucket", UploadSecret: "test-secret", Expires: 15 * time.Minute},
+		store,
+		&fakePostPolicyPresigner{form: postPolicyForm{
 			URL:    "https://bucket.s3.example.com/",
 			Fields: map[string]string{"key": "placeholder"},
 		}},
-		S3HeadChecker:    &fakeHeadChecker{},
-		CloudFrontSigner: &fakeCloudFrontSigner{url: "https://cdn.example.com/signed-get"},
-	})
+		&fakeHeadChecker{},
+		&fakeCloudFrontSigner{url: "https://cdn.example.com/signed-get"},
+	)
+	srv := newUploadServer(uploadServerConfig{Routes: routes})
 	return srv, store
 }
 
@@ -174,13 +172,16 @@ func TestUploadPolicies_MethodNotAllowed(t *testing.T) {
 }
 
 func TestUploadPolicies_MethodNotAllowed_WithStaticDir(t *testing.T) {
+	routes := newRealRouteRegistrar(
+		config{UploadSecret: "test-secret"},
+		newMemoryAssetStore(),
+		&fakePostPolicyPresigner{},
+		&fakeHeadChecker{},
+		&fakeCloudFrontSigner{},
+	)
 	srv := newUploadServer(uploadServerConfig{
-		UploadSecret:     "test-secret",
-		StaticDir:        ".", // 実在するディレクトリなら何でもよい（cmd/upload-serverのソースディレクトリ自体を使う）
-		Store:            newMemoryAssetStore(),
-		S3Presigner:      &fakePostPolicyPresigner{},
-		S3HeadChecker:    &fakeHeadChecker{},
-		CloudFrontSigner: &fakeCloudFrontSigner{},
+		StaticDir: ".", // 実在するディレクトリなら何でもよい（cmd/upload-serverのソースディレクトリ自体を使う）
+		Routes:    routes,
 	})
 	req := httptest.NewRequest(http.MethodGet, "/api/upload/policies", nil)
 	req.Header.Set("X-Upload-Secret", "test-secret")
@@ -197,16 +198,14 @@ func TestUploadPolicies_MethodNotAllowed_WithStaticDir(t *testing.T) {
 
 func TestUploadPolicies_PresignerError(t *testing.T) {
 	store := newMemoryAssetStore()
-	srv := newUploadServer(uploadServerConfig{
-		Bucket:           "test-bucket",
-		UploadSecret:     "test-secret",
-		PostExpires:      15 * time.Minute,
-		ConfirmExpires:   15 * time.Minute,
-		Store:            store,
-		S3Presigner:      &fakePostPolicyPresigner{err: errors.New("boom")},
-		S3HeadChecker:    &fakeHeadChecker{},
-		CloudFrontSigner: &fakeCloudFrontSigner{url: "https://cdn.example.com/signed-get"},
-	})
+	routes := newRealRouteRegistrar(
+		config{Bucket: "test-bucket", UploadSecret: "test-secret", Expires: 15 * time.Minute},
+		store,
+		&fakePostPolicyPresigner{err: errors.New("boom")},
+		&fakeHeadChecker{},
+		&fakeCloudFrontSigner{url: "https://cdn.example.com/signed-get"},
+	)
+	srv := newUploadServer(uploadServerConfig{Routes: routes})
 	body := strings.NewReader(`{"userId":"alice","contentType":"image/png","size":100}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/upload/policies", body)
 	req.Header.Set("X-Upload-Secret", "test-secret")
@@ -313,19 +312,17 @@ func TestConfirmAsset_UnknownID(t *testing.T) {
 
 func TestConfirmAsset_HeadObjectFails(t *testing.T) {
 	store := newMemoryAssetStore()
-	srv := newUploadServer(uploadServerConfig{
-		Bucket:         "test-bucket",
-		UploadSecret:   "test-secret",
-		PostExpires:    15 * time.Minute,
-		ConfirmExpires: 15 * time.Minute,
-		Store:          store,
-		S3Presigner: &fakePostPolicyPresigner{form: postPolicyForm{
+	routes := newRealRouteRegistrar(
+		config{Bucket: "test-bucket", UploadSecret: "test-secret", Expires: 15 * time.Minute},
+		store,
+		&fakePostPolicyPresigner{form: postPolicyForm{
 			URL:    "https://bucket.s3.example.com/",
 			Fields: map[string]string{"key": "placeholder"},
 		}},
-		S3HeadChecker:    &fakeHeadChecker{err: errors.New("not found in S3")},
-		CloudFrontSigner: &fakeCloudFrontSigner{url: "https://cdn.example.com/signed-get"},
-	})
+		&fakeHeadChecker{err: errors.New("not found in S3")},
+		&fakeCloudFrontSigner{url: "https://cdn.example.com/signed-get"},
+	)
+	srv := newUploadServer(uploadServerConfig{Routes: routes})
 	id, token := createTestAsset(t, srv)
 
 	body := strings.NewReader(`{"confirmToken":"` + token + `"}`)
@@ -415,19 +412,17 @@ func TestGetAsset_UnknownID(t *testing.T) {
 
 func TestGetAsset_SignerError(t *testing.T) {
 	store := newMemoryAssetStore()
-	srv := newUploadServer(uploadServerConfig{
-		Bucket:         "test-bucket",
-		UploadSecret:   "test-secret",
-		PostExpires:    15 * time.Minute,
-		ConfirmExpires: 15 * time.Minute,
-		Store:          store,
-		S3Presigner: &fakePostPolicyPresigner{form: postPolicyForm{
+	routes := newRealRouteRegistrar(
+		config{Bucket: "test-bucket", UploadSecret: "test-secret", Expires: 15 * time.Minute},
+		store,
+		&fakePostPolicyPresigner{form: postPolicyForm{
 			URL:    "https://bucket.s3.example.com/",
 			Fields: map[string]string{"key": "placeholder"},
 		}},
-		S3HeadChecker:    &fakeHeadChecker{},
-		CloudFrontSigner: &fakeCloudFrontSigner{err: errors.New("boom")},
-	})
+		&fakeHeadChecker{},
+		&fakeCloudFrontSigner{err: errors.New("boom")},
+	)
+	srv := newUploadServer(uploadServerConfig{Routes: routes})
 	id, token := createTestAsset(t, srv)
 	confirmReq := httptest.NewRequest(http.MethodPatch, "/api/upload/assets/"+id, strings.NewReader(`{"confirmToken":"`+token+`"}`))
 	confirmReq.Header.Set("X-Upload-Secret", "test-secret")

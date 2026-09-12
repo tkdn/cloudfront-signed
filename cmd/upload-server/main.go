@@ -43,18 +43,11 @@ func run() error {
 	s3Client := s3.NewFromConfig(awsCfg)
 	urlSigner := sign.NewURLSigner(cfg.KeyPairID, signer)
 
-	deps := initializeUploadServerDeps(s3Client, urlSigner, cfg.CloudFrontDomain, cfg.Expires)
+	routes := initializeRealRouteRegistrar(s3Client, urlSigner, cfg)
 
 	srv := newUploadServer(uploadServerConfig{
-		Bucket:           cfg.Bucket,
-		UploadSecret:     cfg.UploadSecret,
-		PostExpires:      cfg.Expires,
-		ConfirmExpires:   cfg.Expires,
-		StaticDir:        "web",
-		Store:            deps.Store,
-		S3Presigner:      deps.S3Presigner,
-		S3HeadChecker:    deps.S3HeadChecker,
-		CloudFrontSigner: deps.CloudFrontSigner,
+		StaticDir: "web",
+		Routes:    routes,
 	})
 
 	fmt.Fprintf(os.Stderr, "listening on %s\n", cfg.Addr)
