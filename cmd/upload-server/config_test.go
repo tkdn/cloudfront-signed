@@ -17,6 +17,9 @@ func clearUploadServerEnv(t *testing.T) {
 		"UPLOAD_SERVER_PRIVATE_KEY",
 		"UPLOAD_SERVER_UPLOAD_SECRET",
 		"UPLOAD_SERVER_EXPIRES",
+		"UPLOAD_SERVER_MODE",
+		"UPLOAD_SERVER_MOCK_STORAGE_DIR",
+		"UPLOAD_SERVER_MOCK_BASE_URL",
 	}
 	for _, v := range vars {
 		t.Setenv(v, "")
@@ -61,6 +64,9 @@ func TestLoadConfig_Success(t *testing.T) {
 	}
 	if cfg.Expires != 15*time.Minute {
 		t.Fatalf("Expires = %v, want default 15m", cfg.Expires)
+	}
+	if cfg.Mode != modeReal {
+		t.Fatalf("Mode = %q, want default %q", cfg.Mode, modeReal)
 	}
 }
 
@@ -147,5 +153,70 @@ func TestLoadConfig_NonPositiveExpires(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "positive duration") {
 		t.Fatalf("err = %v, want message containing %q", err, "positive duration")
+	}
+}
+
+func TestLoadConfig_ModeMock_SkipsCloudFrontAndKeyRequirements(t *testing.T) {
+	clearUploadServerEnv(t)
+	t.Setenv("UPLOAD_SERVER_MODE", "mock")
+	t.Setenv("UPLOAD_SERVER_BUCKET", "test-bucket")
+	t.Setenv("UPLOAD_SERVER_UPLOAD_SECRET", "test-secret")
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Mode != modeMock {
+		t.Fatalf("Mode = %q, want %q", cfg.Mode, modeMock)
+	}
+}
+
+func TestLoadConfig_ModeMock_StillRequiresBucketAndSecret(t *testing.T) {
+	clearUploadServerEnv(t)
+	t.Setenv("UPLOAD_SERVER_MODE", "mock")
+
+	_, err := loadConfig()
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	for _, want := range []string{"UPLOAD_SERVER_BUCKET", "UPLOAD_SERVER_UPLOAD_SECRET"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("err = %v, want it to mention %q", err, want)
+		}
+	}
+	for _, notWant := range []string{"UPLOAD_SERVER_CLOUDFRONT_DOMAIN", "UPLOAD_SERVER_KEY_PAIR_ID", "UPLOAD_SERVER_PRIVATE_KEY"} {
+		if strings.Contains(err.Error(), notWant) {
+			t.Fatalf("err = %v, should not mention %q in mock mode", err, notWant)
+		}
+	}
+}
+
+func TestLoadConfig_InvalidMode(t *testing.T) {
+	clearUploadServerEnv(t)
+	setAllRequiredEnv(t)
+	t.Setenv("UPLOAD_SERVER_MODE", "bogus")
+
+	_, err := loadConfig()
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid UPLOAD_SERVER_MODE") {
+		t.Fatalf("err = %v, want message containing %q", err, "invalid UPLOAD_SERVER_MODE")
+	}
+}
+
+func TestLoadConfig_ModeReal_RequiresCloudFrontAndKeyFields(t *testing.T) {
+	clearUploadServerEnv(t)
+	t.Setenv("UPLOAD_SERVER_BUCKET", "test-bucket")
+	t.Setenv("UPLOAD_SERVER_UPLOAD_SECRET", "test-secret")
+
+	_, err := loadConfig()
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	for _, want := range []string{"UPLOAD_SERVER_CLOUDFRONT_DOMAIN", "UPLOAD_SERVER_KEY_PAIR_ID", "UPLOAD_SERVER_PRIVATE_KEY"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("err = %v, want it to mention %q", err, want)
+		}
 	}
 }

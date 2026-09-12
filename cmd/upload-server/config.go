@@ -9,7 +9,15 @@ import (
 	"time"
 )
 
+type serverMode string
+
+const (
+	modeReal serverMode = "real"
+	modeMock serverMode = "mock"
+)
+
 type config struct {
+	Mode             serverMode
 	Addr             string
 	Bucket           string
 	CloudFrontDomain string
@@ -17,35 +25,47 @@ type config struct {
 	PrivateKeyPath   string
 	UploadSecret     string
 	Expires          time.Duration
+	MockStorageDir   string
+	MockBaseURL      string
 }
 
 const defaultExpires = 15 * time.Minute
 
 func loadConfig() (config, error) {
+	mode := serverMode(cmp.Or(os.Getenv("UPLOAD_SERVER_MODE"), string(modeReal)))
+	if mode != modeReal && mode != modeMock {
+		return config{}, fmt.Errorf("invalid UPLOAD_SERVER_MODE: %q (want %q or %q)", mode, modeReal, modeMock)
+	}
+
 	cfg := config{
+		Mode:             mode,
 		Addr:             cmp.Or(os.Getenv("UPLOAD_SERVER_ADDR"), ":8080"),
 		Bucket:           os.Getenv("UPLOAD_SERVER_BUCKET"),
 		CloudFrontDomain: os.Getenv("UPLOAD_SERVER_CLOUDFRONT_DOMAIN"),
 		KeyPairID:        os.Getenv("UPLOAD_SERVER_KEY_PAIR_ID"),
 		PrivateKeyPath:   os.Getenv("UPLOAD_SERVER_PRIVATE_KEY"),
 		UploadSecret:     os.Getenv("UPLOAD_SERVER_UPLOAD_SECRET"),
+		MockStorageDir:   os.Getenv("UPLOAD_SERVER_MOCK_STORAGE_DIR"),
+		MockBaseURL:      os.Getenv("UPLOAD_SERVER_MOCK_BASE_URL"),
 	}
 
 	var missing []string
 	if cfg.Bucket == "" {
 		missing = append(missing, "UPLOAD_SERVER_BUCKET")
 	}
-	if cfg.CloudFrontDomain == "" {
-		missing = append(missing, "UPLOAD_SERVER_CLOUDFRONT_DOMAIN")
-	}
-	if cfg.KeyPairID == "" {
-		missing = append(missing, "UPLOAD_SERVER_KEY_PAIR_ID")
-	}
-	if cfg.PrivateKeyPath == "" {
-		missing = append(missing, "UPLOAD_SERVER_PRIVATE_KEY")
-	}
 	if cfg.UploadSecret == "" {
 		missing = append(missing, "UPLOAD_SERVER_UPLOAD_SECRET")
+	}
+	if mode == modeReal {
+		if cfg.CloudFrontDomain == "" {
+			missing = append(missing, "UPLOAD_SERVER_CLOUDFRONT_DOMAIN")
+		}
+		if cfg.KeyPairID == "" {
+			missing = append(missing, "UPLOAD_SERVER_KEY_PAIR_ID")
+		}
+		if cfg.PrivateKeyPath == "" {
+			missing = append(missing, "UPLOAD_SERVER_PRIVATE_KEY")
+		}
 	}
 	if len(missing) > 0 {
 		return config{}, fmt.Errorf("missing required environment variable(s): %s", strings.Join(missing, ", "))
