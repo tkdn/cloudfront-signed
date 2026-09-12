@@ -9,29 +9,23 @@ package main
 import (
 	"github.com/aws/aws-sdk-go-v2/feature/cloudfront/sign"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"time"
 )
 
 // Injectors from wire.go:
 
-func initializeUploadServerDeps(s3Client *s3.Client, urlSigner *sign.URLSigner, cloudfrontDomain string, expires time.Duration) serverDeps {
-	mainRealS3Adapter := newRealS3Adapter(s3Client)
-	mainRealCloudFrontSigner := newRealCloudFrontSigner(cloudfrontDomain, urlSigner, expires)
+func initializeRealRouteRegistrar(s3Client *s3.Client, urlSigner *sign.URLSigner, cfg config) routeRegistrar {
 	mainMemoryAssetStore := newMemoryAssetStore()
-	mainServerDeps := serverDeps{
-		S3Presigner:      mainRealS3Adapter,
-		S3HeadChecker:    mainRealS3Adapter,
-		CloudFrontSigner: mainRealCloudFrontSigner,
-		Store:            mainMemoryAssetStore,
-	}
-	return mainServerDeps
+	mainRealS3Adapter := newRealS3Adapter(s3Client)
+	string2 := cfg.CloudFrontDomain
+	duration := cfg.Expires
+	mainRealCloudFrontSigner := newRealCloudFrontSigner(string2, urlSigner, duration)
+	mainRealRouteRegistrar := newRealRouteRegistrar(cfg, mainMemoryAssetStore, mainRealS3Adapter, mainRealS3Adapter, mainRealCloudFrontSigner)
+	return mainRealRouteRegistrar
 }
 
-// wire.go:
-
-type serverDeps struct {
-	S3Presigner      s3PostPolicyPresigner
-	S3HeadChecker    s3ObjectHeadChecker
-	CloudFrontSigner cloudFrontSigner
-	Store            assetStore
+func initializeMockRouteRegistrar(cfg config) routeRegistrar {
+	mainMemoryAssetStore := newMemoryAssetStore()
+	mainMockS3Adapter := newMockS3Adapter(cfg)
+	mainMockRouteRegistrar := newMockRouteRegistrar(cfg, mainMemoryAssetStore, mainMockS3Adapter)
+	return mainMockRouteRegistrar
 }
