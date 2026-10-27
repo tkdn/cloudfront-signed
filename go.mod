@@ -1,6 +1,6 @@
 module github.com/tkdn/cloudfront-signed
 
-go 1.27.1
+go 1.27.3
 
 require (
 	github.com/aws/aws-sdk-go-v2/config v1.33.3
